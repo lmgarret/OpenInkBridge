@@ -10,6 +10,7 @@ Below are the detailed integration guides:
 * **[Developer Diagnostics & Logging Guide](./DEVELOPER_DIAGNOSTICS.md)**: Structured logging system, log levels, categories, in-memory ring buffer, diagnostics collection, configuration dumping, and bug report generation.
 * **[Web & WebApp Integration Guide](./WEB_INTEGRATION.md)**: Integrating `openinkbridge-web` inside HTML5 Canvas, React components, and handling browser pointer fallbacks.
 * **[Android SDK Integration Guide](./ANDROID_INTEGRATION.md)**: Adding `OpenInkBridgeView` and `OpenInkBridgeWebView`, opting into BOOX acceleration, handling lifecycle, and optionally generating JNI artifacts.
+* **[Musnap Integration Guide](./musnap.md)**: How the Musnap (iReader firmware) backend drives the firmware pen fast path through a transparent overlay, and what it maps refresh modes to.
 * **[reMarkable Integration Guide](./remarkable.md)**: Experimental reMarkable 1/2 backend design and `armv7-unknown-linux-gnueabihf` build instructions. Paper Pro support is planned but unvalidated.
 * **[Linux Native Client Integration Guide](./LINUX_INTEGRATION.md)**: Understanding the experimental reMarkable backend's nonblocking evdev input and framebuffer rendering pipeline. Kobo support is planned.
 
@@ -51,6 +52,6 @@ Run `scripts/verify.ps1` on PowerShell or `scripts/verify.sh` on POSIX shells fo
 
 ## 4. Trademark Disclaimer
 
-All product names, logos, brands, trademarks, and registered trademarks mentioned in this documentation (including *reMarkable*, *Onyx Boox*, *Bigme*, *Supernote*, *Kobo*, and *E Ink*) are the property of their respective owners. 
+All product names, logos, brands, trademarks, and registered trademarks mentioned in this documentation (including *reMarkable*, *Onyx Boox*, *Musnap*, *iReader*, *Bigme*, *Supernote*, *Kobo*, and *E Ink*) are the property of their respective owners. 
 
 All company, product, and service names used in this documentation are for identification and hardware compatibility reference purposes only. Use of these names, logos, and brands does not imply endorsement, affiliation, sponsorship, or certification by their respective owners. OpenInkBridge is an independent open-source software project.

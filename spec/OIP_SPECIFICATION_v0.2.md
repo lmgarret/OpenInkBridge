@@ -405,12 +405,12 @@ For Linux-based devices (such as reMarkable 1/2), the daemon processes Linux inp
 
 OIP abstracts underlying vendor-specific waveform modes into standard semantics:
 
-| OIP Mode | Onyx Equivalent | reMarkable / Linux | Semantics |
-| :--- | :--- | :--- | :--- |
-| **`FAST` / `SPEED`** | `DU` / `A2` | Fast monochrome direct | Lowest latency (<15ms), 1-bit or 2-bit preview, minimal contrast. |
-| **`PARTIAL`** | `REGAL` / `GU` | Rectangular partial update | High quality update localized to the stroke's bounding box rectangle. |
-| **`FULL` / `QUALITY`**| `GC16` | Full screen flash | High fidelity 16-level grayscale pass; eliminates ghosting. |
-| **`CLEAR`** | Deep Clear Flash | Framebuffer zero & flash | Inverts panel to purge residual electrostatic charges. |
+| OIP Mode | Onyx Equivalent | Musnap (iReader `EinkMode`) | reMarkable / Linux | Semantics |
+| :--- | :--- | :--- | :--- | :--- |
+| **`FAST` / `SPEED`** | `DU` / `A2` | `UI_EINK_DU_PART_MODE` | Fast monochrome direct | Lowest latency (<15ms), 1-bit or 2-bit preview, minimal contrast. |
+| **`PARTIAL`** | `REGAL` / `GU` | `UI_DEFAULT_MODE` (partial GC16) | Rectangular partial update | High quality update localized to the stroke's bounding box rectangle. |
+| **`FULL` / `QUALITY`**| `GC16` | `UI_EINK_GC16_FULL_MODE` | Full screen flash | High fidelity 16-level grayscale pass; eliminates ghosting. |
+| **`CLEAR`** | Deep Clear Flash | `EinkAPI.applyFullScreenRefresh` | Framebuffer zero & flash | Inverts panel to purge residual electrostatic charges. |
 
 ### 6.2 Focus Handoff State Machine
 

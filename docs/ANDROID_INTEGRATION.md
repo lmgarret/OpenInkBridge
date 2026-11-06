@@ -38,6 +38,7 @@ Inside your Activity or Fragment:
 
 ```kotlin
 import org.openinkbridge.sdk.OpenInkBridgeView
+import org.openinkbridge.sdk.StylusTool
 import android.graphics.Color
 
 class SketchActivity : AppCompatActivity() {
@@ -49,6 +50,10 @@ class SketchActivity : AppCompatActivity() {
 
         // Configure brush style
         drawingCanvas.setBrushStyle(Color.BLACK, 5.0f)
+
+        // Pick the pen. Backends with their own pen engine (Musnap) use the matching vendor pen
+        // for both the live preview and the committed stroke.
+        drawingCanvas.setStylusTool(StylusTool.PEN)
 
         // Capture finalized vector strokes
         drawingCanvas.setOnStrokeListener { points ->
@@ -107,6 +112,9 @@ dependencies {
 }
 ```
 
+Musnap tablets need no extra dependency: the firmware's pen API is part of the device framework and
+is resolved by reflection. See the [Musnap Integration Guide](./musnap.md).
+
 `EpdAdapterManager` probes ordered candidates and keeps only an adapter that initializes
 successfully. On BOOX hardware, the Onyx adapter is eligible only when the application supplies the
 matching runtime dependency. Missing classes, probe failures, and initialization errors are reported
@@ -135,6 +143,12 @@ To ensure non-direct drawing areas (such as traditional whiteboard canvases or n
 
 1. **`dispatchTouchEvent` Auto-Handoff:** `OpenInkBridgeWebView` automatically checks `ACTION_DOWN` coordinates. When a touch begins outside the low-latency canvas, hardware raw drawing is paused (`setRawDrawingEnabled(false)`), allowing normal Android view updates and EPD screen refreshes to proceed without lag.
 2. **Re-Enabling Direct Mode:** When a touch begins inside `OpenInkBridgeView` or `OpenInkBridgeOverlayCanvas`, direct hardware raw drawing is immediately re-enabled.
+
+Hosts that implement the same handoff for an `OpenInkBridgeView` themselves (toggling
+`setRawDrawingEnabled` on `ACTION_DOWN`) should do so only when
+`view.needsRawDrawingTouchHandoff` is true. Backends that ink only inside their own region (Musnap)
+report false, and on them the toggle costs the live ink of the first stroke after any touch outside
+the view: the vendor starts inking before the app sees the touch.
 
 ---
 
