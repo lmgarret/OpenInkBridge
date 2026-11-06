@@ -292,7 +292,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                 // smoothing would move the stroke at pen-up. Otherwise match the smoothing the
                 // view applies to strokes it captures itself.
                 val committed = if (hostRendersWithFirmwarePen()) stroke else CoreBridge.smoothStroke(stroke)
-                (hostView as OpenInkBridgeView).addCompletedStroke(committed)
+                (hostView as OpenInkBridgeView).commitCapturedStroke(committed)
                 clearHardwareScribble()
             }
             else -> clearHardwareScribble()

@@ -134,7 +134,22 @@ class OpenInkBridgeView @JvmOverloads constructor(
         epdAdapterManager.activeAdapter.setStylusTool(tool)
     }
 
-    fun addCompletedStroke(stroke: List<PenPoint>) {
+    /**
+     * Add a stroke to the canvas, e.g. to restore a drawing or redraw it after [clear]. The stroke
+     * is drawn with the given pen (by default the current one) and is not reported to the stroke
+     * listener.
+     */
+    fun addCompletedStroke(
+        stroke: List<PenPoint>,
+        tool: StylusTool = stylusTool,
+        color: Int = strokeColor,
+        width: Float = strokeWidth
+    ) {
+        commitStroke(DrawingStroke(stroke, color, width, tool))
+    }
+
+    /** Commits a stroke a backend captured with the current pen and reports it. */
+    internal fun commitCapturedStroke(stroke: List<PenPoint>) {
         commitStroke(DrawingStroke(stroke, strokeColor, strokeWidth, stylusTool))
         onStrokeCompleted?.invoke(stroke)
     }
@@ -422,6 +437,11 @@ class OpenInkBridgeView @JvmOverloads constructor(
         strokePaused = false
         epdAdapterManager.release()
         super.onDetachedFromWindow()
+    }
+
+    /** Full-panel refresh through the active backend, to clear e-ink ghosting. */
+    fun triggerFullRefresh() {
+        epdAdapterManager.activeAdapter.triggerFullRefresh()
     }
 
     fun release() {
