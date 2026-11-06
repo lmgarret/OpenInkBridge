@@ -16,7 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return false;
     };
 
-    log("Initializing side-by-side performance comparison...");
+    log("Initializing canvas...");
 
     function detectEInkDevice() {
         const ua = navigator.userAgent.toLowerCase();
@@ -78,90 +78,12 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     // -------------------------------------------------------------
-    // 2. Initialize Traditional Canvas (Standard Whiteboard)
-    // -------------------------------------------------------------
-    const canvasTrad = document.getElementById("canvas-trad");
-    const ctxTrad = canvasTrad.getContext("2d");
-    
-    // Scale traditional canvas for high-DPI support
-    const dpr = window.devicePixelRatio || 1;
-    function resizeTrad() {
-        const rect = canvasTrad.getBoundingClientRect();
-        canvasTrad.width = rect.width * dpr;
-        canvasTrad.height = rect.height * dpr;
-        ctxTrad.scale(dpr, dpr);
-        ctxTrad.lineCap = "round";
-        ctxTrad.lineJoin = "round";
-        ctxTrad.strokeStyle = "#dc3545"; // Red
-        ctxTrad.lineWidth = 4;
-    }
-    resizeTrad();
-    window.addEventListener("resize", resizeTrad);
-
-    let isDrawingTrad = false;
-    let lastPointTrad = null;
-    canvasTrad.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        isDrawingTrad = true;
-        const rect = canvasTrad.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        lastPointTrad = { x, y, pressure: e.pressure || 0.5 };
-        log(`Traditional: pointerdown x=${x.toFixed(0)}, y=${y.toFixed(0)}`);
-    });
-
-    canvasTrad.addEventListener("pointermove", (e) => {
-        if (!isDrawingTrad || !lastPointTrad) return;
-        e.preventDefault();
-        const rect = canvasTrad.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const pressure = e.pressure || 0.5;
-
-        const avgPressure = (lastPointTrad.pressure + pressure) / 2;
-        const width = Math.max(0.5, currentStrokeWidth * avgPressure);
-        ctxTrad.lineWidth = width;
-        
-        ctxTrad.beginPath();
-        ctxTrad.moveTo(lastPointTrad.x, lastPointTrad.y);
-        ctxTrad.lineTo(x, y);
-        ctxTrad.stroke();
-
-        lastPointTrad = { x, y, pressure };
-
-        if (window.OpenInkBridgeNative && window.OpenInkBridgeNative.onStrokeDrawn) {
-            window.OpenInkBridgeNative.onStrokeDrawn();
-        }
-    });
-
-    canvasTrad.addEventListener("pointerup", () => {
-        if (isDrawingTrad) {
-            isDrawingTrad = false;
-            lastPointTrad = null;
-            log("Traditional: stroke finished.");
-            if (window.OpenInkBridgeNative && window.OpenInkBridgeNative.onStrokeDrawn) {
-                window.OpenInkBridgeNative.onStrokeDrawn();
-            }
-        }
-    });
-
-    canvasTrad.addEventListener("pointercancel", () => {
-        isDrawingTrad = false;
-        lastPointTrad = null;
-    });
-
-    // -------------------------------------------------------------
-    // 3. Clear Button
+    // 2. Clear Button
     // -------------------------------------------------------------
     const btnClear = document.getElementById("btn-clear");
     btnClear.addEventListener("click", () => {
-        // Clear OpenInkBridge canvas
         osCanvas.clear();
-        
-        // Clear Traditional canvas
-        ctxTrad.clearRect(0, 0, canvasTrad.width, canvasTrad.height);
-        
-        log("Both canvases cleared.");
+        log("Canvas cleared.");
     });
 
     // Monitor optimized stroke completions
