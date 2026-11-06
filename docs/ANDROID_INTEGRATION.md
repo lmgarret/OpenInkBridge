@@ -63,6 +63,26 @@ class SketchActivity : AppCompatActivity() {
 }
 ```
 
+### Stylus barrel buttons
+
+Every `PenPoint` carries the barrel buttons held at it as a `PenButtons` bitmask (`PRIMARY`,
+`SECONDARY`), the same on every backend. The bridge only reports them; what a button does is up to
+the app. To use one as a tool, pause the low-latency ink while it is held:
+
+```kotlin
+drawingCanvas.setOnStylusButtonListener { buttons ->
+    drawingCanvas.setInkingPaused(buttons and PenButtons.PRIMARY != 0)
+}
+drawingCanvas.setOnStrokeListener { points ->
+    if (points.any { it.buttons and PenButtons.PRIMARY != 0 }) selectAlong(points) // or erase, …
+}
+```
+
+While paused, strokes are reported to the stroke listener but neither inked nor added to the
+canvas, and whatever the vendor path had already inked is cleared. A stroke keeps the mode it
+started in. The listener fires as soon as the platform reports a change, so pausing from it applies
+to the stroke that reported it. Some pens report their button only while the tip is down.
+
 ---
 
 ## 3. WebApp Packaging WebView (`OpenInkBridgeWebView`)

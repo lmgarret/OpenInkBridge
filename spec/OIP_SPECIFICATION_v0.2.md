@@ -170,6 +170,7 @@ For any sequence of stroke points $P = [p_0, p_1, \dots, p_{n-1}]$ where $n \ge 
   $$\hat{p}_i.pressure = 0.25 \cdot p_{i-1}.pressure + 0.50 \cdot p_i.pressure + 0.25 \cdot p_{i+1}.pressure$$
   $$\hat{p}_i.tilt = 0.25 \cdot p_{i-1}.tilt + 0.50 \cdot p_i.tilt + 0.25 \cdot p_{i+1}.tilt$$
   $$\hat{p}_i.timestamp = p_i.timestamp$$
+  $$\hat{p}_i.buttons = p_i.buttons$$
 * For stroke sequences with $n < 3$, smoothing is identity ($\hat{P} = P$).
 
 #### Formal Golden Vector Test Suite:
@@ -217,8 +218,16 @@ interface StrokePoint {
     pressure: number;   // Normalized pressure ratio [0.0, 1.0] (or [0.0, 16.0] clamp)
     tilt: number;       // Stylus tilt angle in degrees [-180.0, 180.0]
     timestamp: number;  // Monotonic or Unix timestamp in milliseconds
+    buttons?: number;   // Barrel buttons held, bitmask: 0x01 primary, 0x02 secondary. Absent = 0.
 }
 ```
+
+`buttons` reports the stylus barrel buttons with the same bits on every platform, whatever the
+platform's own numbering (Android `BUTTON_STYLUS_*`, Pointer Events `buttons` bit 2). Producers
+SHOULD omit it when no button is held, and consumers MUST treat an absent field as `0`, so
+documents and payloads written before it existed stay valid. What a button does is up to the host
+application; a bridge only reports it. An inverted stylus tail is a tool, not a button, and keeps
+its own signal (e.g. Profile B's Eraser Mode bit).
 
 #### Ink Document Schema:
 ```json
@@ -390,7 +399,7 @@ All binary packet data MUST be transmitted in **Network Byte Order (Big-Endian)*
 | `24 - 25` | `Pressure` | `uint16_t` | `0` to `65535` | Linearly mapped pressure. |
 | `26 - 27` | `Tilt X` | `int16_t` | `-9000` to `+9000` | Hundredths of a degree. |
 | `28 - 29` | `Tilt Y` | `int16_t` | `-9000` to `+9000` | Hundredths of a degree. |
-| `30` | `Routing Flags` | `uint8_t` | Bitmask | Bit 0: Stylus Contact; Bit 1: HW Overlay Active; Bit 2: Handoff Requested; Bit 3: Eraser Mode. |
+| `30` | `Routing Flags` | `uint8_t` | Bitmask | Bit 0: Stylus Contact; Bit 1: HW Overlay Active; Bit 2: Handoff Requested; Bit 3: Eraser Mode; Bit 4: Primary Barrel Button; Bit 5: Secondary Barrel Button. Bits 6–7 reserved (`0`). |
 | `31` | `CRC-8 Checksum` | `uint8_t` | CRC-8-CCITT (`0x07`) | Calculated over Bytes 0 to 30. |
 
 ### 5.4 Evdev Direct Linux Pipeline
