@@ -8,7 +8,16 @@ export interface StrokePoint {
     pressure: number;
     tilt: number;
     timestamp: number;
+    /** Barrel buttons held at this point, as a {@link PenButtons} bitmask. Absent means none. */
+    buttons?: number;
 }
+
+/** Stylus barrel-button bitmask carried by {@link StrokePoint.buttons} (OIP §3.3). */
+export const PenButtons = {
+    NONE: 0,
+    PRIMARY: 1,
+    SECONDARY: 2
+} as const;
 
 export interface StylingOptions {
     color: string;
@@ -74,7 +83,9 @@ export function isValidStrokePoint(value: unknown): value is StrokePoint {
         && isFiniteCoordinate(value.y)
         && isFiniteNumberInRange(value.pressure, 0, 16)
         && isFiniteNumberInRange(value.tilt, -180, 180)
-        && isFiniteNumberInRange(value.timestamp, 0, Number.MAX_SAFE_INTEGER);
+        && isFiniteNumberInRange(value.timestamp, 0, Number.MAX_SAFE_INTEGER)
+        && (value.buttons === undefined
+            || (Number.isInteger(value.buttons) && isFiniteNumberInRange(value.buttons, 0, 255)));
 }
 
 export function validateStrokePoints(value: unknown, maxPoints = 100_000): StrokePoint[] | null {
@@ -89,13 +100,15 @@ export function validateStrokePoints(value: unknown, maxPoints = 100_000): Strok
 }
 
 export function cloneStrokePoint(point: StrokePoint): StrokePoint {
-    return {
+    const clone: StrokePoint = {
         x: point.x,
         y: point.y,
         pressure: point.pressure,
         tilt: point.tilt,
         timestamp: point.timestamp
     };
+    if (point.buttons) clone.buttons = point.buttons;
+    return clone;
 }
 
 export function cloneStrokePoints(points: readonly StrokePoint[]): StrokePoint[] {
@@ -142,7 +155,8 @@ export function smoothStrokeJs(points: readonly StrokePoint[]): StrokePoint[] {
             y: 0.25 * previous.y + 0.5 * current.y + 0.25 * next.y,
             pressure: 0.25 * previous.pressure + 0.5 * current.pressure + 0.25 * next.pressure,
             tilt: 0.25 * previous.tilt + 0.5 * current.tilt + 0.25 * next.tilt,
-            timestamp: current.timestamp
+            timestamp: current.timestamp,
+            ...(current.buttons ? { buttons: current.buttons } : {})
         });
     }
     smoothed.push(cloneStrokePoint(points[points.length - 1]));

@@ -20,6 +20,7 @@ export {
 export {
     InkDocument,
     InkStroke,
+    PenButtons,
     StrokePoint,
     StrokeStyle,
     StylingOptions,
