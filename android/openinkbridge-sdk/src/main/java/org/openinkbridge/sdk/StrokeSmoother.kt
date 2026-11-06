@@ -19,7 +19,8 @@ internal object StrokeSmoother {
                         current.pressure * 0.50f +
                         next.pressure * 0.25f,
                     tilt = previous.tilt * 0.25f + current.tilt * 0.50f + next.tilt * 0.25f,
-                    timestamp = current.timestamp
+                    timestamp = current.timestamp,
+                    buttons = current.buttons
                 )
             )
         }

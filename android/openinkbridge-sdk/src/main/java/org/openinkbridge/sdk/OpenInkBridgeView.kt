@@ -41,6 +41,12 @@ class OpenInkBridgeView @JvmOverloads constructor(
     private var isDrawing = false
     private var rawDrawingEnabled: Boolean? = null
 
+    private var onStylusButtonsChanged: ((Int) -> Unit)? = null
+    private var stylusButtons = PenButtons.NONE
+    private var inkingPaused = false
+    // Latched at ACTION_DOWN: a stroke keeps the routing it started with.
+    private var strokePaused = false
+
     // Standard drawing paint for rendering historical strokes on screen
     private val renderPaint = Paint().apply {
         style = Paint.Style.STROKE
@@ -75,6 +81,49 @@ class OpenInkBridgeView @JvmOverloads constructor(
     fun setOnStrokeListener(listener: (List<PenPoint>) -> Unit) {
         this.onStrokeCompleted = listener
     }
+
+    /**
+     * Called with the [PenButtons] bitmask whenever the stylus barrel buttons change, as soon as
+     * the platform reports it (on some pens only while the tip touches the screen). Calling
+     * [setInkingPaused] from here takes effect for the stroke that reported the change.
+     */
+    fun setOnStylusButtonListener(listener: ((buttons: Int) -> Unit)?) {
+        onStylusButtonsChanged = listener
+    }
+
+    /** The barrel buttons last reported by the stylus, as a [PenButtons] bitmask. */
+    val currentStylusButtons: Int
+        get() = stylusButtons
+
+    internal fun reportStylusButtons(buttons: Int) {
+        if (buttons == stylusButtons) return
+        stylusButtons = buttons
+        onStylusButtonsChanged?.invoke(buttons)
+    }
+
+    private fun reportStylusButtons(event: MotionEvent) {
+        val tool = event.getToolType(0)
+        if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER) {
+            reportStylusButtons(PenButtons.fromAndroidButtonState(event.buttonState))
+        }
+    }
+
+    /**
+     * Pause the backend's low-latency ink, e.g. while a barrel button selects or erases. Strokes
+     * that start while paused are reported to the stroke listener but neither inked nor added to
+     * the canvas; whatever the vendor path already inked is cleared. A stroke keeps the mode it
+     * started in.
+     */
+    fun setInkingPaused(paused: Boolean) {
+        if (inkingPaused == paused) return
+        inkingPaused = paused
+        val adapter = epdAdapterManager.activeAdapter
+        adapter.setRawDrawingEnabled(!paused && rawDrawingEnabled != false)
+        if (paused) adapter.clearHardwareScribble()
+    }
+
+    val isInkingPaused: Boolean
+        get() = inkingPaused
 
     /**
      * Select the pen. Backends with their own pen engine use the matching vendor pen for both the
@@ -130,7 +179,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
 
     fun setRawDrawingEnabled(enabled: Boolean) {
         rawDrawingEnabled = enabled
-        epdAdapterManager.activeAdapter.setRawDrawingEnabled(enabled)
+        epdAdapterManager.activeAdapter.setRawDrawingEnabled(enabled && !inkingPaused)
     }
 
     /**
@@ -160,6 +209,9 @@ class OpenInkBridgeView @JvmOverloads constructor(
         if (stylusOnly && !isStylus) {
             return false
         }
+        reportStylusButtons(event)
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) strokePaused = inkingPaused
+        if (strokePaused) return capturePausedStroke(event)
 
         // When TouchHelper is active AND input is a stylus, TouchHelper handles hardware direct drawing callbacks.
         // For finger touches (!isStylus), process via standard software stroke rendering below.
@@ -178,13 +230,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
             else -> StylusTool.PEN
         }
 
-        val point = PenPoint(
-            x = event.x,
-            y = event.y,
-            pressure = event.pressure,
-            tilt = event.getAxisValue(MotionEvent.AXIS_TILT),
-            timestamp = event.eventTime
-        )
+        val point = currentPoint(event)
 
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
@@ -199,13 +245,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
                 if (isDrawing) {
                     val historySize = event.historySize
                     for (i in 0 until historySize) {
-                        val histPoint = PenPoint(
-                            x = event.getHistoricalX(0, i),
-                            y = event.getHistoricalY(0, i),
-                            pressure = event.getHistoricalPressure(0, i),
-                            tilt = event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, 0, i),
-                            timestamp = event.getHistoricalEventTime(i)
-                        )
+                        val histPoint = historicalPoint(event, i)
                         strokePoints.add(histPoint)
                         epdAdapterManager.activeAdapter.drawPoint(histPoint)
                     }
@@ -234,7 +274,55 @@ class OpenInkBridgeView @JvmOverloads constructor(
         return true
     }
 
+    private fun currentPoint(event: MotionEvent) = PenPoint(
+        x = event.x,
+        y = event.y,
+        pressure = event.pressure,
+        tilt = event.getAxisValue(MotionEvent.AXIS_TILT),
+        timestamp = event.eventTime,
+        buttons = PenButtons.fromAndroidButtonState(event.buttonState)
+    )
+
+    private fun historicalPoint(event: MotionEvent, index: Int) = PenPoint(
+        x = event.getHistoricalX(0, index),
+        y = event.getHistoricalY(0, index),
+        pressure = event.getHistoricalPressure(0, index),
+        tilt = event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, 0, index),
+        timestamp = event.getHistoricalEventTime(index),
+        buttons = PenButtons.fromAndroidButtonState(event.buttonState)
+    )
+
+    /** A stroke drawn while inking is paused: collected and reported, never inked or committed. */
+    private fun capturePausedStroke(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                isDrawing = true
+                strokePoints.clear()
+                strokePoints.add(currentPoint(event))
+            }
+            MotionEvent.ACTION_MOVE -> if (isDrawing) {
+                for (i in 0 until event.historySize) strokePoints.add(historicalPoint(event, i))
+                strokePoints.add(currentPoint(event))
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (isDrawing) {
+                strokePoints.add(currentPoint(event))
+                val stroke = CoreBridge.smoothStroke(strokePoints.toList())
+                strokePoints.clear()
+                isDrawing = false
+                strokePaused = false
+                onStrokeCompleted?.invoke(stroke)
+            }
+        }
+        return true
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        reportStylusButtons(event)
+        return super.onGenericMotionEvent(event)
+    }
+
     override fun onHoverEvent(event: MotionEvent): Boolean {
+        reportStylusButtons(event)
         if (epdAdapterManager.activeAdapter.isDirectDrawingActive()) {
             if (epdAdapterManager.activeAdapter.onHoverEvent(event)) {
                 return true
@@ -316,7 +404,11 @@ class OpenInkBridgeView @JvmOverloads constructor(
             epdAdapterManager.activeAdapter.setBrushStyle(strokeColor, strokeWidth)
             epdAdapterManager.activeAdapter.setStylusTool(stylusTool)
             epdAdapterManager.activeAdapter.setStylusOnly(stylusOnly)
-            rawDrawingEnabled?.let(epdAdapterManager.activeAdapter::setRawDrawingEnabled)
+            if (inkingPaused) {
+                epdAdapterManager.activeAdapter.setRawDrawingEnabled(false)
+            } else {
+                rawDrawingEnabled?.let(epdAdapterManager.activeAdapter::setRawDrawingEnabled)
+            }
         }
         // The bound backend decides whether committed strokes go through its pen engine.
         rebuildStrokeLayer()
@@ -327,6 +419,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
         if (isDrawing) runCatching { epdAdapterManager.activeAdapter.endStroke() }
         strokePoints.clear()
         isDrawing = false
+        strokePaused = false
         epdAdapterManager.release()
         super.onDetachedFromWindow()
     }

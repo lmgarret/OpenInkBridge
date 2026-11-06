@@ -89,6 +89,55 @@ class MusnapInkTest {
     }
 
     @Test
+    fun assembledPointsCarryTheirButtons() {
+        val assembler = AhwStrokeAssembler()
+
+        assembler.onPoint(AhwAction.DOWN, 1f, 1f, 0.5f, 0f, 1L)
+        val stroke = assembler.onPoint(AhwAction.UP, 2f, 2f, 0.5f, 0f, 2L, buttons = PenButtons.PRIMARY)!!
+
+        assertEquals(listOf(PenButtons.NONE, PenButtons.PRIMARY), stroke.map { it.buttons })
+    }
+
+    @Test
+    fun timelineAnswersTheButtonsHeldAtATimestamp() {
+        val timeline = StylusButtonTimeline()
+
+        assertEquals(PenButtons.NONE, timeline.buttonsAt(5L))
+        timeline.record(10L, PenButtons.NONE)
+        timeline.record(20L, PenButtons.PRIMARY)
+        timeline.record(25L, PenButtons.PRIMARY) // unchanged: not a transition
+        timeline.record(30L, PenButtons.NONE)
+
+        assertEquals(PenButtons.NONE, timeline.buttonsAt(19L))
+        assertEquals(PenButtons.PRIMARY, timeline.buttonsAt(20L))
+        assertEquals(PenButtons.PRIMARY, timeline.buttonsAt(29L))
+        assertEquals(PenButtons.NONE, timeline.buttonsAt(30L))
+    }
+
+    @Test
+    fun timelineKeepsOnlyTheMostRecentTransitions() {
+        val timeline = StylusButtonTimeline(capacity = 2)
+
+        timeline.record(10L, PenButtons.PRIMARY)
+        timeline.record(20L, PenButtons.NONE)
+        timeline.record(30L, PenButtons.PRIMARY)
+
+        assertEquals(PenButtons.NONE, timeline.buttonsAt(15L)) // forgotten
+        assertEquals(PenButtons.NONE, timeline.buttonsAt(25L))
+        assertEquals(PenButtons.PRIMARY, timeline.buttonsAt(35L))
+    }
+
+    @Test
+    fun timelineIgnoresOutOfOrderEvents() {
+        val timeline = StylusButtonTimeline()
+
+        timeline.record(20L, PenButtons.PRIMARY)
+        timeline.record(10L, PenButtons.NONE)
+
+        assertEquals(PenButtons.PRIMARY, timeline.buttonsAt(25L))
+    }
+
+    @Test
     fun previewWidthIsLogicalWidthInPhysicalPixels() {
         assertEquals(10f, MusnapPenMapping.previewWidthPx(5f, 2f, pressure = 1f), 0f)
         assertEquals(0.5f, MusnapPenMapping.previewWidthPx(0f, 2f, pressure = 1f), 0f)

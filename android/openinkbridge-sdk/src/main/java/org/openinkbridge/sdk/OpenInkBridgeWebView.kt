@@ -454,6 +454,7 @@ class OpenInkBridgeWebView @JvmOverloads constructor(
                 put("pressure", webPoint.pressure.toDouble())
                 put("tilt", webPoint.tilt.toDouble())
                 put("timestamp", webPoint.timestamp)
+                if (webPoint.buttons != PenButtons.NONE) put("buttons", webPoint.buttons)
             })
         }
         return array
