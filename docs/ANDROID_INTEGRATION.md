@@ -63,6 +63,17 @@ class SketchActivity : AppCompatActivity() {
 }
 ```
 
+The listener reports only strokes the user draws. To restore a saved drawing or redraw it after
+`clear()` (e.g. to remove some strokes), re-add each stroke with the pen it was drawn with;
+`addCompletedStroke` does not call the listener:
+
+```kotlin
+drawingCanvas.clear()
+kept.forEach { drawingCanvas.addCompletedStroke(it.points, it.tool, it.color, it.width) }
+```
+
+`triggerFullRefresh()` runs a full-panel refresh to clear ghosting, on backends that support it.
+
 ### Stylus barrel buttons
 
 Every `PenPoint` carries the barrel buttons held at it as a `PenButtons` bitmask (`PRIMARY`,

@@ -104,7 +104,7 @@ The firmware's own points carry no buttons, so the adapter records the button st
   split the stroke.
 * `setInkingPaused(true)` turns the fast path off (`setAutoHandWrite(false)`) and clears what it
   inked. The firmware starts inking before the app sees the button, so a stroke started with the
-  button held shows a brief flash of ink before it is cleared. Points lag the input by a couple of
+  button held shows its ink for about half a second before it is cleared. Points lag the input by a couple of
   hundred milliseconds; those stamped before the pause still complete and commit the stroke the
   firmware was inking.
 
