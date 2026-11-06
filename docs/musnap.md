@@ -102,6 +102,24 @@ WebView enabling writing mode on a canvas, a layout change), and only moves it o
 `triggerFullRefresh()` calls `EinkAPI.applyFullScreenRefresh`. Constants are read by name at
 runtime, so their values always come from the device.
 
+## Measured behaviour
+
+Measured on a Musnap Ocean with `OpenInkBridgeView` (full screen, `stylusOnly = true`):
+
+* **Overlays.** A transparent view above the canvas that ignores touches (grid lines, labels,
+  marks) does not disturb live ink. Invalidating part of it while the user writes the next stroke
+  loses no ink and leaves no ghosting.
+* **Dialogs.** Nothing inks through an `AlertDialog` drawn on with the pen. The first stroke after
+  closing it gets live ink again.
+* **Finger.** With `stylusOnly`, finger touches produce no ink and still reach the app.
+* **Hover.** Stylus hover events carry a position; `AXIS_DISTANCE` is always 0. Hover exit arrives a
+  few milliseconds before the stroke's `ACTION_DOWN`.
+* **Pressure.** The median pressure of a stroke is about 0.35–0.50 when writing lightly and
+  0.6–0.85 when writing normally. Every stroke starts lower (0.01–0.3) at pen-down, so classify on
+  the median, not the minimum.
+* **Redrawing the canvas.** `clear()` and re-adding strokes costs about 1 ms per stroke (50 strokes
+  ≈ 55 ms, 150 ≈ 120 ms to the first frame) with no visible flash.
+
 ## Firmware API used
 
 | Purpose | API |
