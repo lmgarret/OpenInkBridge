@@ -162,7 +162,8 @@ object OpenInkBridgeDiagnostics {
             fallbackReason = fallbackReason,
             capabilities = CapabilitiesReport(
                 pressure = true,
-                tilt = Build.MANUFACTURER.lowercase().contains("onyx"),
+                tilt = Build.MANUFACTURER.lowercase().contains("onyx") ||
+                    backendName == MusnapEpdAdapter::class.java.simpleName,
                 hover = true,
                 eraser = true,
                 refreshModes = if (adapterStatus.capabilities.refreshModeControl) {

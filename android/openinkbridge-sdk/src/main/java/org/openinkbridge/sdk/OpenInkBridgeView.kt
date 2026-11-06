@@ -33,6 +33,11 @@ class OpenInkBridgeView @JvmOverloads constructor(
     
     private var strokeColor = Color.BLACK
     private var strokeWidth = 5f
+    private var stylusTool = StylusTool.PEN
+
+    // Committed strokes rendered by the backend's own pen engine (see EpdAdapter.renderStroke), so
+    // they look exactly like the low-latency preview. Null when the backend cannot render strokes.
+    private var strokeLayer: Bitmap? = null
     private var isDrawing = false
     private var rawDrawingEnabled: Boolean? = null
 
@@ -71,10 +76,49 @@ class OpenInkBridgeView @JvmOverloads constructor(
         this.onStrokeCompleted = listener
     }
 
+    /**
+     * Select the pen. Backends with their own pen engine use the matching vendor pen for both the
+     * preview and the committed stroke.
+     */
+    fun setStylusTool(tool: StylusTool) {
+        stylusTool = tool
+        epdAdapterManager.activeAdapter.setStylusTool(tool)
+    }
+
     fun addCompletedStroke(stroke: List<PenPoint>) {
-        completedStrokes.add(DrawingStroke(stroke, strokeColor, strokeWidth))
-        invalidate()
+        commitStroke(DrawingStroke(stroke, strokeColor, strokeWidth, stylusTool))
         onStrokeCompleted?.invoke(stroke)
+    }
+
+    private fun commitStroke(stroke: DrawingStroke) {
+        completedStrokes.add(stroke)
+        strokeLayer?.let { layer ->
+            if (!epdAdapterManager.activeAdapter.renderStroke(Canvas(layer), stroke)) rebuildStrokeLayer()
+        }
+        invalidate()
+    }
+
+    private fun backendRendersStrokes(): Boolean =
+        (epdAdapterManager.activeAdapter as? EpdAdapterIntrospection)
+            ?.status()?.capabilities?.vendorStrokeRendering == true
+
+    /** Re-renders every committed stroke through the backend, or drops the layer if it cannot. */
+    private fun rebuildStrokeLayer() {
+        strokeLayer?.recycle()
+        strokeLayer = null
+        if (width <= 0 || height <= 0 || !backendRendersStrokes()) return
+        val layer = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(layer)
+        if (completedStrokes.all { epdAdapterManager.activeAdapter.renderStroke(canvas, it) }) {
+            strokeLayer = layer
+        } else {
+            layer.recycle()
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        rebuildStrokeLayer()
     }
 
     private var stylusOnly = true
@@ -88,6 +132,15 @@ class OpenInkBridgeView @JvmOverloads constructor(
         rawDrawingEnabled = enabled
         epdAdapterManager.activeAdapter.setRawDrawingEnabled(enabled)
     }
+
+    /**
+     * Whether the active backend needs raw drawing paused while touches land outside this view
+     * (see [EpdAdapterCapabilities.rawDrawingTouchHandoff]). Hosts that toggle
+     * [setRawDrawingEnabled] per ACTION_DOWN should only do so when this is true.
+     */
+    val needsRawDrawingTouchHandoff: Boolean
+        get() = (epdAdapterManager.activeAdapter as? EpdAdapterIntrospection)
+            ?.status()?.capabilities?.rawDrawingTouchHandoff == true
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_MOVE) {
@@ -168,7 +221,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
                     epdAdapterManager.activeAdapter.endStroke()
 
                     val smoothedStroke = CoreBridge.smoothStroke(strokePoints)
-                    completedStrokes.add(DrawingStroke(smoothedStroke, strokeColor, strokeWidth))
+                    commitStroke(DrawingStroke(smoothedStroke, strokeColor, strokeWidth, stylusTool))
                     
                     onStrokeCompleted?.invoke(smoothedStroke)
                     strokePoints.clear()
@@ -196,8 +249,10 @@ class OpenInkBridgeView @JvmOverloads constructor(
 
         val density = resources.displayMetrics.density
 
-        // Draw all finalized vector strokes
-        for (stroke in completedStrokes) {
+        val layer = strokeLayer
+        if (layer != null) {
+            canvas.drawBitmap(layer, 0f, 0f, null)
+        } else for (stroke in completedStrokes) {
             if (stroke.points.size < 2) continue
             renderPaint.color = stroke.color
             for (i in 0 until stroke.points.size - 1) {
@@ -219,6 +274,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
      */
     fun clear() {
         completedStrokes.clear()
+        strokeLayer?.eraseColor(Color.TRANSPARENT)
         epdAdapterManager.activeAdapter.clear()
         invalidate()
     }
@@ -258,9 +314,12 @@ class OpenInkBridgeView @JvmOverloads constructor(
         super.onAttachedToWindow()
         if (epdAdapterManager.bind()) {
             epdAdapterManager.activeAdapter.setBrushStyle(strokeColor, strokeWidth)
+            epdAdapterManager.activeAdapter.setStylusTool(stylusTool)
             epdAdapterManager.activeAdapter.setStylusOnly(stylusOnly)
             rawDrawingEnabled?.let(epdAdapterManager.activeAdapter::setRawDrawingEnabled)
         }
+        // The bound backend decides whether committed strokes go through its pen engine.
+        rebuildStrokeLayer()
     }
 
     override fun onDetachedFromWindow() {

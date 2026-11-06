@@ -739,7 +739,8 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
             fullRefresh = epdControllerOperational,
             drawingLimit = touchHelper != null,
             rawDrawingToggle = touchHelper != null,
-            hardwareScribbleHandoff = touchHelper != null && epdControllerOperational
+            hardwareScribbleHandoff = touchHelper != null && epdControllerOperational,
+            rawDrawingTouchHandoff = touchHelper != null
         )
     )
 
