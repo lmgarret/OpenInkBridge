@@ -77,6 +77,18 @@ had drawn it; pass `notify = false` to keep it from the listener.
 
 `triggerFullRefresh()` runs a full-panel refresh to clear ghosting, on backends that support it.
 
+View updates that can wait (marks, highlights, status text) belong in `runWhenPenIdle`. It runs
+them once the pen has been idle for `penIdleDelayMs` (2 s by default) or has left hover range, and
+at once if it already is. On Musnap, updating a view while the user writes delays the ink of the
+next stroke (see the [Musnap guide](./musnap.md#keep-the-screen-still-while-the-user-writes)):
+
+```kotlin
+drawingCanvas.setOnStrokeListener { points ->
+    val cell = cellOf(points)
+    drawingCanvas.runWhenPenIdle { grid.markFilled(cell) }
+}
+```
+
 ### Stylus barrel buttons
 
 Every `PenPoint` carries the barrel buttons held at it as a `PenButtons` bitmask (`PRIMARY`,
