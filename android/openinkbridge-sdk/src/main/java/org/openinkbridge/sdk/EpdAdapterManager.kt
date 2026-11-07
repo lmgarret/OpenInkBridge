@@ -74,7 +74,9 @@ class EpdAdapterManager(private val view: View) {
                 listOf(::FallbackCanvasAdapter)
             }
             else -> {
-                listOf(::JetpackInkAdapter, ::FallbackCanvasAdapter)
+                // Musnap tablets ship under rebranded build properties, so the firmware's pen API is
+                // detected by probing for it rather than by brand; the probe fails fast elsewhere.
+                listOf(::MusnapEpdAdapter, ::JetpackInkAdapter, ::FallbackCanvasAdapter)
             }
         }
 

@@ -12,7 +12,19 @@ data class EpdAdapterCapabilities(
     val fullRefresh: Boolean = false,
     val drawingLimit: Boolean = false,
     val rawDrawingToggle: Boolean = false,
-    val hardwareScribbleHandoff: Boolean = false
+    val hardwareScribbleHandoff: Boolean = false,
+    /**
+     * Raw drawing must be paused while touches land outside the drawing region, so hosts toggle
+     * [EpdAdapter.setRawDrawingEnabled] on every ACTION_DOWN (Onyx). Backends whose vendor path
+     * only inks inside its own region leave it false: toggling there costs the live ink of the
+     * first stroke after any outside touch, since the vendor starts inking before the app sees it.
+     */
+    val rawDrawingTouchHandoff: Boolean = false,
+    /**
+     * [EpdAdapter.renderStroke] draws committed strokes with the same vendor pen engine that inks
+     * the live preview, so a stroke looks identical before and after pen-up.
+     */
+    val vendorStrokeRendering: Boolean = false
 )
 
 data class EpdAdapterProbeResult(
@@ -123,6 +135,18 @@ interface EpdAdapter {
      * Set a boundary limit rectangle for low-latency drawing.
      */
     fun setDrawingLimit(rect: android.graphics.Rect?) {}
+
+    /**
+     * Select the pen used for the low-latency preview (and for [renderStroke], when supported).
+     */
+    fun setStylusTool(tool: StylusTool) {}
+
+    /**
+     * Draw a committed stroke with the vendor's own pen engine into a software-backed [canvas]
+     * (e.g. one wrapping a Bitmap). Returns false when the adapter cannot, in which case the host
+     * renders the stroke itself.
+     */
+    fun renderStroke(canvas: Canvas, stroke: DrawingStroke): Boolean = false
 }
 
 /**

@@ -21,5 +21,6 @@ enum class EInkRefreshMode {
 data class DrawingStroke(
     val points: List<PenPoint>,
     val color: Int,
-    val width: Float
+    val width: Float,
+    val tool: StylusTool = StylusTool.PEN
 )

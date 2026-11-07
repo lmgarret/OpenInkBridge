@@ -7,12 +7,12 @@
     android:background="#FFFFFF"
     android:fitsSystemWindows="true">
 
-    <!-- Control Panel / Toolbar -->
-    <HorizontalScrollView
-        android:id="@+id/toolbarScrollView"
+    <!-- Control Panel / Toolbar: two rows, so every control fits on narrow portrait screens -->
+    <LinearLayout
+        android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:scrollbars="none"
+        android:orientation="vertical"
         android:background="#F0F0F0"
         android:padding="8dp">
 
@@ -43,8 +43,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Clear"
-                android:textSize="12sp"
-                android:layout_marginEnd="16dp" />
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -122,7 +128,7 @@
                 android:checked="true" />
 
         </LinearLayout>
-    </HorizontalScrollView>
+    </LinearLayout>
 
     <!-- Canvas Mount Container -->
     <FrameLayout
