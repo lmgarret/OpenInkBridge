@@ -135,24 +135,37 @@ class OpenInkBridgeView @JvmOverloads constructor(
     }
 
     /**
-     * Add a stroke to the canvas, e.g. to restore a drawing or redraw it after [clear]. The stroke
-     * is drawn with the given pen (by default the current one) and is not reported to the stroke
-     * listener.
+     * Commit a stroke as if it had just been drawn: with the given pen (by default the current
+     * one), reported to the stroke listener unless [notify] is false. To put back many strokes at
+     * once, e.g. after removing some, assign [strokes].
      */
+    @JvmOverloads
     fun addCompletedStroke(
         stroke: List<PenPoint>,
         tool: StylusTool = stylusTool,
         color: Int = strokeColor,
-        width: Float = strokeWidth
+        width: Float = strokeWidth,
+        notify: Boolean = true
     ) {
         commitStroke(DrawingStroke(stroke, color, width, tool))
+        if (notify) onStrokeCompleted?.invoke(stroke)
     }
 
-    /** Commits a stroke a backend captured with the current pen and reports it. */
-    internal fun commitCapturedStroke(stroke: List<PenPoint>) {
-        commitStroke(DrawingStroke(stroke, strokeColor, strokeWidth, stylusTool))
-        onStrokeCompleted?.invoke(stroke)
-    }
+    /**
+     * The committed strokes, oldest first. Assigning replaces them all, e.g. to restore a saved
+     * drawing or remove some strokes: each is drawn with its own pen, colour and width (through
+     * the backend's pen engine when it has one), and the stroke listener is not called. Assigning
+     * an empty list is [clear].
+     */
+    var strokes: List<DrawingStroke>
+        get() = completedStrokes.toList()
+        set(value) {
+            completedStrokes.clear()
+            completedStrokes.addAll(value)
+            epdAdapterManager.activeAdapter.clear()
+            rebuildStrokeLayer()
+            invalidate()
+        }
 
     private fun commitStroke(stroke: DrawingStroke) {
         completedStrokes.add(stroke)
@@ -168,10 +181,19 @@ class OpenInkBridgeView @JvmOverloads constructor(
 
     /** Re-renders every committed stroke through the backend, or drops the layer if it cannot. */
     private fun rebuildStrokeLayer() {
-        strokeLayer?.recycle()
+        val previous = strokeLayer
         strokeLayer = null
-        if (width <= 0 || height <= 0 || !backendRendersStrokes()) return
-        val layer = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        if (width <= 0 || height <= 0 || !backendRendersStrokes()) {
+            previous?.recycle()
+            return
+        }
+        // Reuse the layer when the size is unchanged: a full-screen bitmap per rebuild adds up.
+        val layer = if (previous != null && previous.width == width && previous.height == height) {
+            previous.apply { eraseColor(Color.TRANSPARENT) }
+        } else {
+            previous?.recycle()
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        }
         val canvas = Canvas(layer)
         if (completedStrokes.all { epdAdapterManager.activeAdapter.renderStroke(canvas, it) }) {
             strokeLayer = layer
@@ -376,10 +398,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
      * Clear the canvas and completed vector paths.
      */
     fun clear() {
-        completedStrokes.clear()
-        strokeLayer?.eraseColor(Color.TRANSPARENT)
-        epdAdapterManager.activeAdapter.clear()
-        invalidate()
+        strokes = emptyList()
     }
 
     /**
@@ -406,7 +425,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
             for (i in 1 until stroke.points.size) {
                 sb.append(" L ${stroke.points[i].x} ${stroke.points[i].y}")
             }
-            sb.append("\" stroke=\"$hexColor\" stroke-width=\"${stroke.width}\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />\n")
+            sb.append("\" stroke=\"$hexColor\" stroke-width=\"${stroke.width}\" data-tool=\"${stroke.tool.name.lowercase()}\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />\n")
         }
         
         sb.append("</svg>")
