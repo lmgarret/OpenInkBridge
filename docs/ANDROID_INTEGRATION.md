@@ -63,14 +63,17 @@ class SketchActivity : AppCompatActivity() {
 }
 ```
 
-The listener reports only strokes the user draws. To restore a saved drawing or redraw it after
-`clear()` (e.g. to remove some strokes), re-add each stroke with the pen it was drawn with;
-`addCompletedStroke` does not call the listener:
+To restore a saved drawing, or redraw it without some strokes, assign `strokes`. Each stroke is
+drawn with its own pen, colour and width, and the stroke listener is not called; assigning an empty
+list is `clear()`:
 
 ```kotlin
-drawingCanvas.clear()
-kept.forEach { drawingCanvas.addCompletedStroke(it.points, it.tool, it.color, it.width) }
+val saved: List<DrawingStroke> = drawingCanvas.strokes
+drawingCanvas.strokes = saved.filterNot { it in erased }
 ```
+
+`addCompletedStroke(points, tool, color, width, notify = true)` commits one stroke as if the user
+had drawn it; pass `notify = false` to keep it from the listener.
 
 `triggerFullRefresh()` runs a full-panel refresh to clear ghosting, on backends that support it.
 

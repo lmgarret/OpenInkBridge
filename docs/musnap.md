@@ -136,8 +136,9 @@ Measured on a Musnap Ocean with `OpenInkBridgeView` (full screen, `stylusOnly = 
 * **Pressure.** The median pressure of a stroke is about 0.35–0.50 when writing lightly and
   0.6–0.85 when writing normally. Every stroke starts lower (0.01–0.3) at pen-down, so classify on
   the median, not the minimum.
-* **Redrawing the canvas.** `clear()` and re-adding strokes costs about 1 ms per stroke (50 strokes
-  ≈ 55 ms, 150 ≈ 120 ms to the first frame) with no visible flash.
+* **Redrawing the canvas.** Replacing the strokes costs about 1 ms per stroke (50 strokes ≈ 55 ms,
+  150 ≈ 120 ms to the first frame) with no visible flash. Assigned strokes go through the firmware
+  pen like live ones, so pencil strokes still look like pencil.
 
 ## Firmware API used
 
