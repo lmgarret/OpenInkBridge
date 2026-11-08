@@ -18,6 +18,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.updatePadding
 import org.openinkbridge.sdk.OpenInkBridgeView
 import org.openinkbridge.sdk.PenButtons
+import org.openinkbridge.sdk.StylusTool
 import org.openinkbridge.sdk.OpenInkBridgeWebView
 import org.openinkbridge.sdk.OpenInkBridgeLogger
 import org.openinkbridge.sdk.LogLevel
@@ -325,18 +326,14 @@ open class MainActivity : AppCompatActivity() {
         nativeViewOpt = OpenInkBridgeView(this).apply {
             setBrushStyle(currentColor, currentWidth)
             setStylusOnly(isStylusOnlyMode)
-            // Holding the barrel button pauses inking: those strokes are only reported, as an app
-            // would use for selecting or erasing.
+            // Holding the barrel button erases.
             setOnStylusButtonListener { buttons ->
-                setInkingPaused(buttons and PenButtons.PRIMARY != 0)
+                setStylusTool(if (buttons and PenButtons.PRIMARY != 0) StylusTool.ERASER_POINT else StylusTool.PEN)
             }
-            setOnStrokeListener { points ->
-                if (isInkingPaused || points.any { it.buttons != PenButtons.NONE }) {
-                    title.text = "Button stroke: ${points.size} points (not inked)"
-                } else {
-                    title.text = NATIVE_CANVAS_TITLE
-                }
+            setOnStrokesErasedListener { change ->
+                title.text = "Erased: ${change.removed.size} strokes, ${change.added.size} pieces left"
             }
+            setOnStrokeListener { title.text = NATIVE_CANVAS_TITLE }
         }
         panel.addView(title)
         panel.addView(nativeViewOpt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
