@@ -81,10 +81,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
     private var stylusTool = StylusTool.PEN
 
     private var panelEraser: MusnapEinkApi.PanelEraser? = null
-    private val panelEraserFeed = PanelEraserFeed(
-        sink = { action, x, y -> onEraserThread { touch(action, x, y) } },
-        retrace = { points -> onEraserThread { retrace(points) } }
-    )
+    private val panelEraserFeed = PanelEraserFeed { action, x, y -> onEraserThread { touch(action, x, y) } }
     private var eraserThread: HandlerThread? = null
     private var eraserHandler: Handler? = null
     private val hostLocation = IntArray(2)
@@ -611,18 +608,12 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                 onEraserThread { start(background, -dx, -dy, radiusPx) }
                 dx to dy
             }
-            var started = false
             // Each call redraws the panel under the eraser, so not every point of a batch: a few
             // keep a quick curve a curve instead of chords between the batches' last points.
             for (i in batchPicks(history)) {
-                started = panelEraserFeed.onTouch(MotionEvent.ACTION_MOVE, event.getHistoricalX(i), event.getHistoricalY(i), start, fromX, fromY, event.getHistoricalEventTime(i)) || started
+                panelEraserFeed.onTouch(MotionEvent.ACTION_MOVE, event.getHistoricalX(i), event.getHistoricalY(i), start, fromX, fromY)
             }
-            started = panelEraserFeed.onTouch(event.actionMasked, event.x, event.y, start, fromX, fromY, event.eventTime) || started
-            if (started) {
-                val generation = panelEraserFeed.generation
-                // Twice: some of that ink lands after the first pass.
-                for (k in 1..2) host.postDelayed({ runCatching { panelEraserFeed.replayStart(generation) } }, k * PanelEraserFeed.EARLY_MS)
-            }
+            panelEraserFeed.onTouch(event.actionMasked, event.x, event.y, start, fromX, fromY)
             true
         } catch (error: Throwable) {
             panelEraser = null

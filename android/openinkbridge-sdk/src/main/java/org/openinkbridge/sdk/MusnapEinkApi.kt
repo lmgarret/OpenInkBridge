@@ -158,13 +158,12 @@ internal class MusnapEinkApi private constructor(
         val constructor = type.getConstructor(Class.forName("$PKG.view.IFBHandSurface"), surfaceType, fbType)
         val style = type.getMethod("setStyle", int)
         val quick = type.getField("STYLE_QUICK").getInt(null)
-        // Each one takes about 200 ms to build (the firmware logs a missing native method on the
-        // way), so both are built once: one follows the pen, the other retraces its start.
-        val (live, retrace) = List(2) { constructor.newInstance(fb, surfacePicture, picture).also { style.invoke(it, quick) } }
+        // It takes about 200 ms to build (the firmware logs a missing native method on the way),
+        // so it is built once.
+        val eraser = constructor.newInstance(fb, surfacePicture, picture).also { style.invoke(it, quick) }
         return PanelEraser(
             picture,
-            live,
-            retrace,
+            eraser,
             bindColor = fbType.getMethod("bindColor", int),
             bindBitmap = fbType.getMethod("bindBitmap", Bitmap::class.java, Boolean::class.javaPrimitiveType),
             pictureLocation = fbType.getMethod("setViewLocation", int, int),
@@ -175,8 +174,7 @@ internal class MusnapEinkApi private constructor(
 
     class PanelEraser(
         private val picture: Any,
-        private val live: Any,
-        private val retracer: Any,
+        private val eraser: Any,
         private val bindColor: Method,
         private val bindBitmap: Method,
         private val pictureLocation: Method,
@@ -190,21 +188,13 @@ internal class MusnapEinkApi private constructor(
         fun start(background: Bitmap?, offsetX: Int, offsetY: Int, radiusPx: Int) {
             if (background != null) bindBitmap.invoke(picture, background, false) else bindColor.invoke(picture, Color.WHITE)
             pictureLocation.invoke(picture, offsetX, offsetY)
-            radius.invoke(live, radiusPx)
-            radius.invoke(retracer, radiusPx)
-        }
-
-        /** Erases along [points] with the second eraser, leaving the live one where it is. */
-        fun retrace(points: List<IntArray>) {
-            touch.invoke(retracer, MotionEvent.ACTION_DOWN, points[0][0], points[0][1])
-            // As in a live erase: the firmware erases from the first move on.
-            for (p in points) touch.invoke(retracer, MotionEvent.ACTION_MOVE, p[0], p[1])
+            radius.invoke(eraser, radiusPx)
         }
 
         // One point per event, as the notes app does. An UP repaints the panel from the eraser's
         // view, flashing the erased ink back until the host redraws, so the eraser never sees it.
         fun touch(action: Int, x: Int, y: Int) {
-            if (action != MotionEvent.ACTION_UP) touch.invoke(live, action, x, y)
+            if (action != MotionEvent.ACTION_UP) touch.invoke(eraser, action, x, y)
         }
     }
 

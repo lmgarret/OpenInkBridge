@@ -130,8 +130,8 @@ content.
 * Its pictures need an `HWEraserView`; one that is created but never shown does. Its default track
   style draws into that view, so nothing shows until the redraw.
 * Building an `HWEraser` takes about 200 ms: the firmware calls a native method it lacks
-  (`FBPaint.nativeSetDitherMode`) and logs the error. The adapter builds its erasers once, when the
-  overlay is ready, and only rebinds the background per erase; built at the first erase, they made
+  (`FBPaint.nativeSetDitherMode`) and logs the error. The adapter builds its eraser once, when the
+  overlay is ready, and only rebinds the background per erase; built at the first erase, it made
   the panel blink and left the start unerased.
 
 Measured on the Musnap Ocean: the erase starts about 30 ms after the touch, and each call takes
@@ -140,8 +140,13 @@ fell behind the pen, so the adapter sends the newest point and two more of each 
 therefore erases chords of a quick curve, so the view cuts the strokes along `panelErasePath`, the
 points it actually went through, not the stroke's own points.
 
-The interrupted stroke's ink keeps landing for up to a couple of hundred milliseconds after the
-pause, over the start of the erase; 250 ms in, a second eraser goes over that start again.
+With the button, the firmware has already started inking when the app learns of it (the button
+is reported only once the tip touches). Pausing it cancels that stroke a few milliseconds of input
+in, and the starting circle may show bits of the erased strokes until pen-up, when the view
+redraws. Erasing that circle again (whole start, start circle alone, the reported late points, at
+50–500 ms), drawing an outline as a cursor and pausing by refusing the stylus instead of turning the
+fast path off were all tried on the Musnap Ocean: each extra pass overlaps the live erase's panel
+updates and glitches more than it fixes. An eraser selected before the pen touches has none of this.
 
 * No cursor. `setShowBorder(true)` draws none in the quick style. `HandEraser`, the eraser the
   notes app uses, has a circle style that blocks the caller for seconds; its only usable style
