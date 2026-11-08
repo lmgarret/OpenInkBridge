@@ -103,7 +103,7 @@ advertising unavailable acceleration.
 
 ```gradle
 dependencies {
-    runtimeOnly "com.onyx.android.sdk:onyxsdk-pen:1.5.4"
+    runtimeOnly "com.onyx.android.sdk:onyxsdk-pen:1.5.9"
 }
 ```
 
