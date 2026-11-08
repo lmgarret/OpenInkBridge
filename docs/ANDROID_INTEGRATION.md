@@ -109,6 +109,31 @@ canvas, and whatever the vendor path had already inked is cleared. A stroke keep
 started in. The listener fires as soon as the platform reports a change, so pausing from it applies
 to the stroke that reported it. Some pens report their button only while the tip is down.
 
+### Erasing
+
+Select `StylusTool.ERASER_POINT` to cut what the stylus crosses out of the strokes, or
+`StylusTool.ERASER_STROKE` to remove whole strokes; the stylus's eraser end always does the latter.
+Selecting an eraser takes effect at once, even mid-stroke, so a barrel button can hold it; leaving
+it takes effect once the erasing stroke ends. Erasing strokes are not reported to the stroke
+listener; what they changed goes to the erase listener.
+
+```kotlin
+drawingCanvas.eraserRadiusPx = 12f * resources.displayMetrics.density
+drawingCanvas.setEraserBackground { canvas -> grid.draw(canvas) } // what lies under the strokes
+drawingCanvas.setOnStylusButtonListener { buttons ->
+    val held = buttons and PenButtons.PRIMARY != 0
+    drawingCanvas.setStylusTool(if (held) StylusTool.ERASER_POINT else StylusTool.PEN)
+}
+drawingCanvas.setOnStrokesErasedListener { change ->
+    document.replace(change.removed, change.added)
+}
+```
+
+On backends that erase on the panel (`EpdAdapterCapabilities.panelErase`, Musnap), the erase shows
+at ink speed over the background and is applied to the strokes at pen-up; the background is drawn
+when an erase starts, and without one the erased area is white until the view redraws. Elsewhere
+the strokes are cut and redrawn as the stylus moves.
+
 ---
 
 ## 3. WebApp Packaging WebView (`OpenInkBridgeWebView`)
