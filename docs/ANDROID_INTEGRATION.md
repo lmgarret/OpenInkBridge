@@ -134,6 +134,19 @@ at ink speed over the background and is applied to the strokes at pen-up; the ba
 when an erase starts, and without one the erased area is white until the view redraws. Elsewhere
 the strokes are cut and redrawn as the stylus moves.
 
+### Excluded regions
+
+Areas of the view that take taps rather than writing (buttons, cells) can be kept out of the
+low-latency ink, in the view's own pixels:
+
+```kotlin
+drawingCanvas.setExcludedRegions(listOf(RectF(0f, 0f, 200f, 80f)))
+```
+
+The pen still reaches the view there as ordinary touch events. The regions are kept and re-applied
+whenever the backend binds again. Only Onyx honours them (as `TouchHelper.setLimitRect`'s exclude
+list); other backends ink everywhere.
+
 ---
 
 ## 3. WebApp Packaging WebView (`OpenInkBridgeWebView`)
