@@ -63,16 +63,31 @@ class SketchActivity : AppCompatActivity() {
 }
 ```
 
-The listener reports only strokes the user draws. To restore a saved drawing or redraw it after
-`clear()` (e.g. to remove some strokes), re-add each stroke with the pen it was drawn with;
-`addCompletedStroke` does not call the listener:
+To restore a saved drawing, or redraw it without some strokes, assign `strokes`. Each stroke is
+drawn with its own pen, colour and width, and the stroke listener is not called; assigning an empty
+list is `clear()`:
 
 ```kotlin
-drawingCanvas.clear()
-kept.forEach { drawingCanvas.addCompletedStroke(it.points, it.tool, it.color, it.width) }
+val saved: List<DrawingStroke> = drawingCanvas.strokes
+drawingCanvas.strokes = saved.filterNot { it in erased }
 ```
 
+`addCompletedStroke(points, tool, color, width, notify = true)` commits one stroke as if the user
+had drawn it; pass `notify = false` to keep it from the listener.
+
 `triggerFullRefresh()` runs a full-panel refresh to clear ghosting, on backends that support it.
+
+View updates that can wait (marks, highlights, status text) belong in `runWhenPenIdle`. It runs
+them once the pen has been idle for `penIdleDelayMs` (2 s by default) or has left hover range, and
+at once if it already is. On Musnap, updating a view while the user writes delays the ink of the
+next stroke (see the [Musnap guide](./musnap.md#keep-the-screen-still-while-the-user-writes)):
+
+```kotlin
+drawingCanvas.setOnStrokeListener { points ->
+    val cell = cellOf(points)
+    drawingCanvas.runWhenPenIdle { grid.markFilled(cell) }
+}
+```
 
 ### Stylus barrel buttons
 

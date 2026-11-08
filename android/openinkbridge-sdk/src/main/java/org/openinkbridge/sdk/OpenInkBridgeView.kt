@@ -7,6 +7,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.Rect
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.SurfaceView
@@ -91,6 +94,30 @@ class OpenInkBridgeView @JvmOverloads constructor(
         onStylusButtonsChanged = listener
     }
 
+    private val penIdle = PenIdleTracker()
+
+    /**
+     * How long after the last stroke the pen counts as idle for [runWhenPenIdle], in milliseconds.
+     * A pen leaving hover range counts as idle at once.
+     */
+    var penIdleDelayMs: Long
+        get() = penIdle.idleDelayMs
+        set(value) {
+            penIdle.idleDelayMs = value
+        }
+
+    /**
+     * Run [action] once the pen is idle: no stroke for [penIdleDelayMs], or the pen out of range.
+     * Runs it now if the pen is already idle. Use it for view updates that can wait (marks,
+     * highlights, status text): on some e-ink backends (Musnap) any view update made while the
+     * user writes delays the ink of the next stroke by a couple of hundred milliseconds.
+     * Actions run on the main thread, in the order they were queued.
+     */
+    fun runWhenPenIdle(action: () -> Unit) = penIdle.runWhenIdle(action)
+
+    /** Tracks pen-down, pen-up and the pen leaving range, from whichever path sees the stylus. */
+    internal fun reportPenActivity(event: MotionEvent) = penIdle.onPenEvent(event)
+
     /** The barrel buttons last reported by the stylus, as a [PenButtons] bitmask. */
     val currentStylusButtons: Int
         get() = stylusButtons
@@ -118,6 +145,8 @@ class OpenInkBridgeView @JvmOverloads constructor(
         if (inkingPaused == paused) return
         inkingPaused = paused
         val adapter = epdAdapterManager.activeAdapter
+        // The vendor ink is about to be cleared: draw the strokes it still stands in for.
+        if (paused) renderInkedStrokes()
         adapter.setRawDrawingEnabled(!paused && rawDrawingEnabled != false)
         if (paused) adapter.clearHardwareScribble()
     }
@@ -135,23 +164,83 @@ class OpenInkBridgeView @JvmOverloads constructor(
     }
 
     /**
-     * Add a stroke to the canvas, e.g. to restore a drawing or redraw it after [clear]. The stroke
-     * is drawn with the given pen (by default the current one) and is not reported to the stroke
-     * listener.
+     * Commit a stroke as if it had just been drawn: with the given pen (by default the current
+     * one), reported to the stroke listener unless [notify] is false. To put back many strokes at
+     * once, e.g. after removing some, assign [strokes].
      */
+    @JvmOverloads
     fun addCompletedStroke(
         stroke: List<PenPoint>,
         tool: StylusTool = stylusTool,
         color: Int = strokeColor,
-        width: Float = strokeWidth
+        width: Float = strokeWidth,
+        notify: Boolean = true
     ) {
         commitStroke(DrawingStroke(stroke, color, width, tool))
+        if (notify) onStrokeCompleted?.invoke(stroke)
     }
 
-    /** Commits a stroke a backend captured with the current pen and reports it. */
-    internal fun commitCapturedStroke(stroke: List<PenPoint>) {
-        commitStroke(DrawingStroke(stroke, strokeColor, strokeWidth, stylusTool))
-        onStrokeCompleted?.invoke(stroke)
+    /**
+     * The committed strokes, oldest first. Assigning replaces them all, e.g. to restore a saved
+     * drawing or remove some strokes: each is drawn with its own pen, colour and width (through
+     * the backend's pen engine when it has one), and the stroke listener is not called. Assigning
+     * an empty list is [clear].
+     */
+    var strokes: List<DrawingStroke>
+        get() = completedStrokes.toList()
+        set(value) {
+            // Strokes still shown only as vendor ink are not in the layer yet: count them as new.
+            val drawn = completedStrokes.filterNot(unrenderedStrokes.toHashSet()::contains)
+            unrenderedStrokes.clear()
+            val dirty = changedArea(drawn, value)
+            completedStrokes.clear()
+            completedStrokes.addAll(value)
+            epdAdapterManager.activeAdapter.clearHardwareScribble()
+            if (dirty == null || !redrawStrokeLayer(dirty)) rebuildStrokeLayer()
+            // Only the strokes that came or went need repainting; on e-ink a smaller update is a
+            // faster one.
+            if (dirty != null) invalidate(dirty)
+        }
+
+    private fun changedArea(before: List<DrawingStroke>, after: List<DrawingStroke>): Rect? {
+        val kept = after.toHashSet()
+        val previous = before.toHashSet()
+        val area = RectF()
+        val pad = resources.displayMetrics.density
+        for (stroke in before.filterNot(kept::contains) + after.filterNot(previous::contains)) {
+            if (stroke.points.isEmpty()) continue
+            val margin = stroke.width * pad * 2f + 2f
+            for (p in stroke.points) area.union(p.x - margin, p.y - margin, p.x + margin, p.y + margin)
+        }
+        if (area.isEmpty) return null
+        return Rect(area.left.toInt() - 1, area.top.toInt() - 1, area.right.toInt() + 2, area.bottom.toInt() + 2)
+    }
+
+    private val unrenderedStrokes = mutableListOf<DrawingStroke>()
+
+    /**
+     * A stroke the backend inked itself: recorded and reported now, but drawn into the view only
+     * once the pen is idle, its vendor ink standing in until then. Redrawing the view while the
+     * user writes delays the next stroke's ink on some backends (Musnap).
+     */
+    internal fun commitInkedStroke(points: List<PenPoint>) {
+        val stroke = DrawingStroke(points, strokeColor, strokeWidth, stylusTool)
+        completedStrokes.add(stroke)
+        unrenderedStrokes.add(stroke)
+        onStrokeCompleted?.invoke(points)
+        if (unrenderedStrokes.size == 1) runWhenPenIdle(::renderInkedStrokes)
+    }
+
+    private fun renderInkedStrokes() {
+        if (unrenderedStrokes.isEmpty()) return
+        val area = changedArea(emptyList(), unrenderedStrokes)
+        strokeLayer?.let { layer ->
+            val canvas = Canvas(layer)
+            if (!unrenderedStrokes.all { epdAdapterManager.activeAdapter.renderStroke(canvas, it) }) rebuildStrokeLayer()
+        }
+        unrenderedStrokes.clear()
+        if (area != null) invalidate(area) else invalidate()
+        epdAdapterManager.activeAdapter.clearHardwareScribble()
     }
 
     private fun commitStroke(stroke: DrawingStroke) {
@@ -166,12 +255,45 @@ class OpenInkBridgeView @JvmOverloads constructor(
         (epdAdapterManager.activeAdapter as? EpdAdapterIntrospection)
             ?.status()?.capabilities?.vendorStrokeRendering == true
 
+    /**
+     * Re-renders only [area] of the stroke layer, from the strokes that reach into it. Returns
+     * false when there is no layer to update in place, or the backend fails to render a stroke.
+     */
+    private fun redrawStrokeLayer(area: Rect): Boolean {
+        val layer = strokeLayer ?: return false
+        if (layer.width != width || layer.height != height) return false
+        val canvas = Canvas(layer)
+        if (!canvas.clipRect(area)) return true
+        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        val density = resources.displayMetrics.density
+        val bounds = RectF()
+        for (stroke in completedStrokes) {
+            if (stroke.points.isEmpty()) continue
+            val margin = stroke.width * density * 2f + 2f
+            bounds.set(stroke.points[0].x, stroke.points[0].y, stroke.points[0].x, stroke.points[0].y)
+            for (p in stroke.points) bounds.union(p.x, p.y)
+            bounds.inset(-margin, -margin)
+            if (!RectF.intersects(bounds, RectF(area))) continue
+            if (!epdAdapterManager.activeAdapter.renderStroke(canvas, stroke)) return false
+        }
+        return true
+    }
+
     /** Re-renders every committed stroke through the backend, or drops the layer if it cannot. */
     private fun rebuildStrokeLayer() {
-        strokeLayer?.recycle()
+        val previous = strokeLayer
         strokeLayer = null
-        if (width <= 0 || height <= 0 || !backendRendersStrokes()) return
-        val layer = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        if (width <= 0 || height <= 0 || !backendRendersStrokes()) {
+            previous?.recycle()
+            return
+        }
+        // Reuse the layer when the size is unchanged: a full-screen bitmap per rebuild adds up.
+        val layer = if (previous != null && previous.width == width && previous.height == height) {
+            previous.apply { eraseColor(Color.TRANSPARENT) }
+        } else {
+            previous?.recycle()
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        }
         val canvas = Canvas(layer)
         if (completedStrokes.all { epdAdapterManager.activeAdapter.renderStroke(canvas, it) }) {
             strokeLayer = layer
@@ -225,6 +347,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
             return false
         }
         reportStylusButtons(event)
+        reportPenActivity(event)
         if (event.actionMasked == MotionEvent.ACTION_DOWN) strokePaused = inkingPaused
         if (strokePaused) return capturePausedStroke(event)
 
@@ -338,6 +461,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
         reportStylusButtons(event)
+        reportPenActivity(event)
         if (epdAdapterManager.activeAdapter.isDirectDrawingActive()) {
             if (epdAdapterManager.activeAdapter.onHoverEvent(event)) {
                 return true
@@ -376,8 +500,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
      * Clear the canvas and completed vector paths.
      */
     fun clear() {
-        completedStrokes.clear()
-        strokeLayer?.eraseColor(Color.TRANSPARENT)
+        strokes = emptyList()
         epdAdapterManager.activeAdapter.clear()
         invalidate()
     }
@@ -406,7 +529,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
             for (i in 1 until stroke.points.size) {
                 sb.append(" L ${stroke.points[i].x} ${stroke.points[i].y}")
             }
-            sb.append("\" stroke=\"$hexColor\" stroke-width=\"${stroke.width}\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />\n")
+            sb.append("\" stroke=\"$hexColor\" stroke-width=\"${stroke.width}\" data-tool=\"${stroke.tool.name.lowercase()}\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />\n")
         }
         
         sb.append("</svg>")
@@ -427,6 +550,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
         }
         // The bound backend decides whether committed strokes go through its pen engine.
         rebuildStrokeLayer()
+        penIdle.schedule()
     }
 
     override fun onDetachedFromWindow() {
@@ -435,6 +559,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
         strokePoints.clear()
         isDrawing = false
         strokePaused = false
+        penIdle.cancelTouch()
         epdAdapterManager.release()
         super.onDetachedFromWindow()
     }

@@ -292,8 +292,8 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                 // smoothing would move the stroke at pen-up. Otherwise match the smoothing the
                 // view applies to strokes it captures itself.
                 val committed = if (hostRendersWithFirmwarePen()) stroke else CoreBridge.smoothStroke(stroke)
-                (hostView as OpenInkBridgeView).commitCapturedStroke(committed)
-                clearHardwareScribble()
+                // The firmware's ink stands in for the stroke until the view draws it.
+                (hostView as OpenInkBridgeView).commitInkedStroke(committed)
             }
             else -> clearHardwareScribble()
         }
@@ -381,6 +381,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         val buttons = PenButtons.fromAndroidButtonState(event.buttonState)
         buttonTimeline.record(event.eventTime, buttons)
         (hostView as? OpenInkBridgeView)?.reportStylusButtons(buttons)
+        (hostView as? OpenInkBridgeView)?.reportPenActivity(event)
         val active = inkingActive()
         if (!active && event.actionMasked == MotionEvent.ACTION_DOWN) {
             // The firmware started inking this stroke before the host paused it: it is the host's.

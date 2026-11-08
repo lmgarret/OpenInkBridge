@@ -126,8 +126,8 @@ runtime, so their values always come from the device.
 Measured on a Musnap Ocean with `OpenInkBridgeView` (full screen, `stylusOnly = true`):
 
 * **Overlays.** A transparent view above the canvas that ignores touches (grid lines, labels,
-  marks) does not disturb live ink. Invalidating part of it while the user writes the next stroke
-  loses no ink and leaves no ghosting.
+  marks) does not disturb live ink and leaves no ghosting, but see "Keep the screen still while
+  the user writes" below.
 * **Dialogs.** Nothing inks through an `AlertDialog` drawn on with the pen. The first stroke after
   closing it gets live ink again.
 * **Finger.** With `stylusOnly`, finger touches produce no ink and still reach the app.
@@ -136,8 +136,27 @@ Measured on a Musnap Ocean with `OpenInkBridgeView` (full screen, `stylusOnly = 
 * **Pressure.** The median pressure of a stroke is about 0.35–0.50 when writing lightly and
   0.6–0.85 when writing normally. Every stroke starts lower (0.01–0.3) at pen-down, so classify on
   the median, not the minimum.
-* **Redrawing the canvas.** `clear()` and re-adding strokes costs about 1 ms per stroke (50 strokes
-  ≈ 55 ms, 150 ≈ 120 ms to the first frame) with no visible flash.
+* **Redrawing the canvas.** Replacing the strokes costs about 1 ms per stroke (50 strokes ≈ 55 ms,
+  150 ≈ 120 ms to the first frame) with no visible flash. Assigned strokes go through the firmware
+  pen like live ones, so pencil strokes still look like pencil.
+
+## Keep the screen still while the user writes
+
+The firmware draws its ink inside the system compositor. Any ordinary view update the app makes
+while the user writes (a status line, a mark, the stroke it just committed) makes the compositor
+redo its e-ink work, and a stroke that starts meanwhile gets its first ink 150–250 ms late instead
+of 15–40 ms. The firmware's notes app avoids this by changing nothing on screen while the pen is
+in use. What did not help: the speed refresh mode, and `EPDCDevice.setDelayRefreshInterval`.
+
+* `OpenInkBridgeView` therefore keeps each finished stroke as firmware ink and draws it into the
+  view only once the pen is idle. The stroke is reported to the stroke listener, and is in
+  `strokes`, at once.
+* Apps should queue their own cosmetic updates with `runWhenPenIdle { … }`, which runs them after
+  `penIdleDelayMs` (2 s) without a stroke, or as soon as the pen leaves hover range.
+
+Measured over about twelve letters each: with both, no stroke started more than 100 ms late;
+committing each stroke at once made a third of them late, updating a mark straight away one in
+twelve.
 
 ## Firmware API used
 
