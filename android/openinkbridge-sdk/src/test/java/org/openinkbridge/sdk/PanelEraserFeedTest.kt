@@ -11,17 +11,13 @@ import org.junit.Test
 
 class PanelEraserFeedTest {
     private val calls = mutableListOf<Triple<Int, Int, Int>>()
-    private val retraced = mutableListOf<List<Pair<Int, Int>>>()
-    private val feed = PanelEraserFeed(
-        sink = { a, x, y -> calls += Triple(a, x, y) },
-        retrace = { pts -> retraced += pts.map { it[0] to it[1] } }
-    )
+    private val feed = PanelEraserFeed { a, x, y -> calls += Triple(a, x, y) }
     private val noOffset = { 0 to 0 }
 
     @Test
     fun forwardsAStrokeAsDownMoveUpErasingTheFirstPointToo() {
-        assertTrue(feed.onTouch(ACTION_DOWN, 1f, 2f, noOffset))
-        assertFalse(feed.onTouch(ACTION_MOVE, 3f, 4f, noOffset))
+        feed.onTouch(ACTION_DOWN, 1f, 2f, noOffset)
+        feed.onTouch(ACTION_MOVE, 3f, 4f, noOffset)
         feed.onTouch(ACTION_UP, 5f, 6f, noOffset)
 
         assertEquals(listOf(Triple(ACTION_DOWN, 1, 2), Triple(ACTION_MOVE, 1, 2), Triple(ACTION_MOVE, 1, 2), Triple(ACTION_MOVE, 3, 4), Triple(ACTION_UP, 5, 6)), calls)
@@ -30,7 +26,7 @@ class PanelEraserFeedTest {
 
     @Test
     fun anEraseStartedMidStrokeBeginsWithDown() {
-        assertTrue(feed.onTouch(ACTION_MOVE, 3f, 4f, noOffset))
+        feed.onTouch(ACTION_MOVE, 3f, 4f, noOffset)
 
         assertEquals(listOf(Triple(ACTION_DOWN, 3, 4), Triple(ACTION_MOVE, 3, 4), Triple(ACTION_MOVE, 3, 4)), calls)
         assertTrue(feed.isErasing)
@@ -56,32 +52,6 @@ class PanelEraserFeedTest {
     }
 
     @Test
-    fun replayRetracesOnlyTheFirstPointsApartFromTheLiveErase() {
-        feed.onTouch(ACTION_DOWN, 1f, 1f, noOffset, time = 0L)
-        feed.onTouch(ACTION_MOVE, 2f, 2f, noOffset, time = 100L)
-        feed.onTouch(ACTION_MOVE, 3f, 3f, noOffset, time = PanelEraserFeed.EARLY_MS + 1)
-        calls.clear()
-
-        feed.replayStart(feed.generation)
-
-        assertEquals(listOf(listOf(1 to 1, 1 to 1, 2 to 2)), retraced)
-        assertTrue(calls.isEmpty())
-    }
-
-    @Test
-    fun replayOfAnEarlierEraseDoesNothing() {
-        feed.onTouch(ACTION_DOWN, 1f, 1f, noOffset)
-        val first = feed.generation
-        feed.onTouch(ACTION_UP, 1f, 1f, noOffset)
-        feed.onTouch(ACTION_DOWN, 5f, 5f, noOffset)
-        calls.clear()
-
-        feed.replayStart(first)
-
-        assertTrue(retraced.isEmpty())
-    }
-
-    @Test
     fun traceHoldsThePointsSentInHostCoordinates() {
         val offset = { 100 to 200 }
         feed.onTouch(ACTION_MOVE, 3f, 4f, offset, fromX = 1f, fromY = 2f)
@@ -100,7 +70,7 @@ class PanelEraserFeedTest {
 
     @Test
     fun anEndWithoutAnEraseIsIgnored() {
-        assertFalse(feed.onTouch(ACTION_UP, 1f, 2f, noOffset))
+        feed.onTouch(ACTION_UP, 1f, 2f, noOffset)
 
         assertTrue(calls.isEmpty())
     }
