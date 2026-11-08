@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.SurfaceView
@@ -78,6 +80,18 @@ class OpenInkBridgeView @JvmOverloads constructor(
     }
 
     private var stylusOnly = true
+    private var excludedRegions: List<Rect> = emptyList()
+
+    /**
+     * Areas of this view, in its px, where the backend's low-latency path must not ink (e.g. cells
+     * that take taps rather than writing); empty for none. Kept and re-applied whenever the
+     * backend binds again. The pen still reaches the view there as touch events. Only backends
+     * that support it (Onyx) honour it; others ink everywhere.
+     */
+    fun setExcludedRegions(regions: List<RectF>) {
+        excludedRegions = regions.map { r -> Rect().also(r::roundOut) }
+        epdAdapterManager.activeAdapter.setExcludedRegions(excludedRegions)
+    }
 
     fun setStylusOnly(enabled: Boolean) {
         this.stylusOnly = enabled
@@ -259,6 +273,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
         if (epdAdapterManager.bind()) {
             epdAdapterManager.activeAdapter.setBrushStyle(strokeColor, strokeWidth)
             epdAdapterManager.activeAdapter.setStylusOnly(stylusOnly)
+            if (excludedRegions.isNotEmpty()) epdAdapterManager.activeAdapter.setExcludedRegions(excludedRegions)
             rawDrawingEnabled?.let(epdAdapterManager.activeAdapter::setRawDrawingEnabled)
         }
     }
