@@ -2,14 +2,18 @@ package org.openinkbridge.sdk
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.SurfaceHolder
@@ -76,6 +80,16 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
 
     private var stylusTool = StylusTool.PEN
 
+    private var panelEraser: MusnapEinkApi.PanelEraser? = null
+    private val panelEraserFeed = PanelEraserFeed(
+        sink = { action, x, y -> onEraserThread { touch(action, x, y) } },
+        retrace = { points -> onEraserThread { retrace(points) } }
+    )
+    private var eraserThread: HandlerThread? = null
+    private var eraserHandler: Handler? = null
+    private val hostLocation = IntArray(2)
+    private val overlayLocation = IntArray(2)
+
     private fun capabilities() = EpdAdapterCapabilities(
         directDrawing = true,
         refreshModeControl = true,
@@ -83,7 +97,8 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         drawingLimit = true,
         rawDrawingToggle = true,
         hardwareScribbleHandoff = true,
-        vendorStrokeRendering = api?.canRenderStrokes == true
+        vendorStrokeRendering = api?.canRenderStrokes == true,
+        panelErase = true
     )
 
     /**
@@ -225,6 +240,8 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
     /** Forgets everything bound to the overlay's firmware surface, which is gone or being replaced. */
     private fun dropFbSurface() {
         fbSurface = null
+        panelEraser = null
+        panelEraserFeed.reset()
         autoHandWriteApplied = null
         assembler.reset()
     }
@@ -244,6 +261,10 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
             api.setTouchListener(fb, ahwSink)
             fbSurface = fb
             autoHandWriteApplied = null
+            // Built now rather than at the first erase: creating its view makes the panel blink.
+            if (panelEraser == null) {
+                panelEraser = hostView?.let { runCatching { api.createPanelEraser(it.context, fb) }.getOrNull() }
+            }
             applyPen()
             applyAutoHandWrite()
             adapterState = EpdAdapterState.OPERATIONAL
@@ -533,6 +554,9 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
             focusListener?.let(vto::removeOnWindowFocusChangeListener)
         }
         destroyOverlaySurface()
+        eraserThread?.quitSafely()
+        eraserThread = null
+        eraserHandler = null
         preDrawListener = null
         focusListener = null
         overlayParent = null
@@ -542,6 +566,69 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         previewPoints.clear()
         adapterState = EpdAdapterState.RELEASED
         statusReason = null
+    }
+
+
+    /**
+     * The firmware eraser's DOWN waits for the panel while it is still updating, up to ~170 ms. Its
+     * calls run in order on a thread of their own, so a wait delays the erase, not the touch
+     * events behind it.
+     */
+    private fun onEraserThread(call: MusnapEinkApi.PanelEraser.() -> Unit) {
+        val eraser = panelEraser ?: return
+        val handler = eraserHandler ?: HandlerThread("musnap-eraser").let { thread ->
+            thread.start()
+            eraserThread = thread
+            Handler(thread.looper).also { eraserHandler = it }
+        }
+        handler.post {
+            try {
+                eraser.call()
+            } catch (error: Throwable) {
+                OpenInkBridgeLogger.w(Subsystem.PenInput, TAG, "PANEL_ERASER_FAILED", "${error.cause?.message ?: error.message}")
+            }
+        }
+    }
+
+    override fun panelErasePath(): List<PointF> = panelEraserFeed.trace.map { PointF(it[0], it[1]) }
+
+    override fun eraseOnPanel(event: MotionEvent, radiusPx: Int, background: Bitmap?): Boolean {
+        val api = api ?: return false
+        val fb = fbSurface ?: return false
+        val host = hostView ?: return false
+        val surface = overlay ?: return false
+        return try {
+            if (panelEraser == null) panelEraser = api.createPanelEraser(host.context, fb)
+            val history = event.historySize
+            val fromX = if (history > 0) event.getHistoricalX(0) else event.x
+            val fromY = if (history > 0) event.getHistoricalY(0) else event.y
+            val start = {
+                host.getLocationOnScreen(hostLocation)
+                surface.getLocationOnScreen(overlayLocation)
+                val x = hostLocation[0]
+                val y = hostLocation[1]
+                onEraserThread { start(background, x, y, radiusPx) }
+                (hostLocation[0] - overlayLocation[0]) to (hostLocation[1] - overlayLocation[1])
+            }
+            var started = false
+            // Each call redraws the panel under the eraser, so not every point of a batch: a few
+            // keep a quick curve a curve instead of chords between the batches' last points.
+            for (i in batchPicks(history)) {
+                started = panelEraserFeed.onTouch(MotionEvent.ACTION_MOVE, event.getHistoricalX(i), event.getHistoricalY(i), start, fromX, fromY, event.getHistoricalEventTime(i)) || started
+            }
+            started = panelEraserFeed.onTouch(event.actionMasked, event.x, event.y, start, fromX, fromY, event.eventTime) || started
+            if (started) {
+                val generation = panelEraserFeed.generation
+                // Twice: some of that ink lands after the first pass.
+                for (k in 1..2) host.postDelayed({ runCatching { panelEraserFeed.replayStart(generation) } }, k * PanelEraserFeed.EARLY_MS)
+            }
+            true
+        } catch (error: Throwable) {
+            panelEraser = null
+            panelEraserFeed.reset()
+            OpenInkBridgeLogger.w(Subsystem.PenInput, TAG, "PANEL_ERASER_FAILED", "${error.cause?.message ?: error.message}")
+            false
+        }
     }
 
     override fun setStylusTool(tool: StylusTool) {

@@ -8,11 +8,14 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.SurfaceView
+import kotlin.math.roundToInt
 
 /**
  * A zero-configuration standalone drawing canvas view for native Android.
@@ -37,6 +40,8 @@ class OpenInkBridgeView @JvmOverloads constructor(
     private var strokeColor = Color.BLACK
     private var strokeWidth = 5f
     private var stylusTool = StylusTool.PEN
+    // The last drawing tool selected: what strokes are committed with while an eraser is selected.
+    private var penTool = StylusTool.PEN
 
     // Committed strokes rendered by the backend's own pen engine (see EpdAdapter.renderStroke), so
     // they look exactly like the low-latency preview. Null when the backend cannot render strokes.
@@ -47,8 +52,24 @@ class OpenInkBridgeView @JvmOverloads constructor(
     private var onStylusButtonsChanged: ((Int) -> Unit)? = null
     private var stylusButtons = PenButtons.NONE
     private var inkingPaused = false
+    // Whether the backend's low-latency ink is off, for a pause or an eraser.
+    private var inkSuspended = false
     // Latched at ACTION_DOWN: a stroke keeps the routing it started with.
     private var strokePaused = false
+
+    private var erase: EraseSession? = null
+    private var onStrokesErased: ((StrokeErase) -> Unit)? = null
+    private var eraserBackground: ((Canvas) -> Unit)? = null
+    private var eraserBackgroundBitmap: Bitmap? = null
+    private val eraserClearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    }
+
+    /** Radius of the eraser of [StylusTool.ERASER_POINT] and [StylusTool.ERASER_STROKE], in pixels. */
+    var eraserRadiusPx: Float = 6f * resources.displayMetrics.density
 
     // Standard drawing paint for rendering historical strokes on screen
     private val renderPaint = Paint().apply {
@@ -88,7 +109,8 @@ class OpenInkBridgeView @JvmOverloads constructor(
     /**
      * Called with the [PenButtons] bitmask whenever the stylus barrel buttons change, as soon as
      * the platform reports it (on some pens only while the tip touches the screen). Calling
-     * [setInkingPaused] from here takes effect for the stroke that reported the change.
+     * [setInkingPaused] or [setStylusTool] from here takes effect for the stroke that reported the
+     * change.
      */
     fun setOnStylusButtonListener(listener: ((buttons: Int) -> Unit)?) {
         onStylusButtonsChanged = listener
@@ -144,11 +166,18 @@ class OpenInkBridgeView @JvmOverloads constructor(
     fun setInkingPaused(paused: Boolean) {
         if (inkingPaused == paused) return
         inkingPaused = paused
+        updateInking()
+    }
+
+    private fun updateInking() {
+        val suspend = inkingPaused || stylusTool.isEraser || erase != null
+        if (suspend == inkSuspended) return
+        inkSuspended = suspend
         val adapter = epdAdapterManager.activeAdapter
         // The vendor ink is about to be cleared: draw the strokes it still stands in for.
-        if (paused) renderInkedStrokes()
-        adapter.setRawDrawingEnabled(!paused && rawDrawingEnabled != false)
-        if (paused) adapter.clearHardwareScribble()
+        if (suspend) renderInkedStrokes()
+        adapter.setRawDrawingEnabled(!suspend && rawDrawingEnabled != false)
+        if (suspend) adapter.clearHardwareScribble()
     }
 
     val isInkingPaused: Boolean
@@ -156,11 +185,38 @@ class OpenInkBridgeView @JvmOverloads constructor(
 
     /**
      * Select the pen. Backends with their own pen engine use the matching vendor pen for both the
-     * preview and the committed stroke.
+     * preview and the committed stroke. With [StylusTool.ERASER_POINT] the stylus cuts what it
+     * crosses out of [strokes], and with [StylusTool.ERASER_STROKE] (also the stylus's eraser end)
+     * removes whole strokes; see [setOnStrokesErasedListener]. Selecting an eraser takes effect at
+     * once, even mid-stroke, e.g. from [setOnStylusButtonListener]; leaving it takes effect once
+     * the erasing stroke ends.
      */
     fun setStylusTool(tool: StylusTool) {
         stylusTool = tool
-        epdAdapterManager.activeAdapter.setStylusTool(tool)
+        if (!tool.isEraser) {
+            penTool = tool
+            epdAdapterManager.activeAdapter.setStylusTool(tool)
+        }
+        updateInking()
+    }
+
+    /** Called once an erasing stroke ends, with what it changed in [strokes]; not when it changed nothing. */
+    fun setOnStrokesErasedListener(listener: ((StrokeErase) -> Unit)?) {
+        onStrokesErased = listener
+    }
+
+    /**
+     * Draw what the eraser uncovers, whatever lies under the strokes (a grid, a page), into a
+     * canvas the size of this view, already filled white. Called when an erase starts, on backends
+     * that erase straight on the panel at ink speed (Musnap); without it the panel shows white
+     * there until the view redraws.
+     */
+    fun setEraserBackground(draw: ((Canvas) -> Unit)?) {
+        eraserBackground = draw
+        if (draw == null) {
+            eraserBackgroundBitmap?.recycle()
+            eraserBackgroundBitmap = null
+        }
     }
 
     /**
@@ -171,7 +227,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
     @JvmOverloads
     fun addCompletedStroke(
         stroke: List<PenPoint>,
-        tool: StylusTool = stylusTool,
+        tool: StylusTool = penTool,
         color: Int = strokeColor,
         width: Float = strokeWidth,
         notify: Boolean = true
@@ -202,6 +258,34 @@ class OpenInkBridgeView @JvmOverloads constructor(
             if (dirty != null) invalidate(dirty)
         }
 
+    /**
+     * Replaces [strokes] with [after], cut along [path], by clearing the eraser's circle along it
+     * from the stroke layer instead of re-rendering the strokes that changed: re-rendered, cut
+     * strokes change shape slightly from what the panel erased.
+     */
+    private fun clearErasedPath(after: List<DrawingStroke>, path: List<FloatArray>) {
+        val layer = strokeLayer
+        if (layer == null || layer.width != width || layer.height != height) {
+            strokes = after
+            return
+        }
+        renderInkedStrokes()
+        completedStrokes.clear()
+        completedStrokes.addAll(after)
+        val trace = Path().apply {
+            moveTo(path[0][0], path[0][1])
+            // A lone point still erases its circle: a zero-length line with round caps.
+            if (path.size == 1) lineTo(path[0][0], path[0][1])
+            for (i in 1 until path.size) lineTo(path[i][0], path[i][1])
+        }
+        eraserClearPaint.strokeWidth = eraserRadiusPx * 2
+        Canvas(layer).drawPath(trace, eraserClearPaint)
+        val bounds = RectF().also { trace.computeBounds(it, true) }
+        bounds.inset(-eraserRadiusPx - 2f, -eraserRadiusPx - 2f)
+        epdAdapterManager.activeAdapter.clearHardwareScribble()
+        invalidate(Rect(bounds.left.toInt(), bounds.top.toInt(), bounds.right.toInt() + 1, bounds.bottom.toInt() + 1))
+    }
+
     private fun changedArea(before: List<DrawingStroke>, after: List<DrawingStroke>): Rect? {
         val kept = after.toHashSet()
         val previous = before.toHashSet()
@@ -224,7 +308,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
      * user writes delays the next stroke's ink on some backends (Musnap).
      */
     internal fun commitInkedStroke(points: List<PenPoint>) {
-        val stroke = DrawingStroke(points, strokeColor, strokeWidth, stylusTool)
+        val stroke = DrawingStroke(points, strokeColor, strokeWidth, penTool)
         completedStrokes.add(stroke)
         unrenderedStrokes.add(stroke)
         onStrokeCompleted?.invoke(points)
@@ -251,9 +335,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
         invalidate()
     }
 
-    private fun backendRendersStrokes(): Boolean =
-        (epdAdapterManager.activeAdapter as? EpdAdapterIntrospection)
-            ?.status()?.capabilities?.vendorStrokeRendering == true
+    private fun backendRendersStrokes(): Boolean = epdAdapterManager.activeAdapter.capabilities().vendorStrokeRendering
 
     /**
      * Re-renders only [area] of the stroke layer, from the strokes that reach into it. Returns
@@ -316,7 +398,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
 
     fun setRawDrawingEnabled(enabled: Boolean) {
         rawDrawingEnabled = enabled
-        epdAdapterManager.activeAdapter.setRawDrawingEnabled(enabled && !inkingPaused)
+        epdAdapterManager.activeAdapter.setRawDrawingEnabled(enabled && !inkSuspended)
     }
 
     /**
@@ -325,8 +407,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
      * [setRawDrawingEnabled] per ACTION_DOWN should only do so when this is true.
      */
     val needsRawDrawingTouchHandoff: Boolean
-        get() = (epdAdapterManager.activeAdapter as? EpdAdapterIntrospection)
-            ?.status()?.capabilities?.rawDrawingTouchHandoff == true
+        get() = epdAdapterManager.activeAdapter.capabilities().rawDrawingTouchHandoff
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_MOVE) {
@@ -348,6 +429,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
         }
         reportStylusButtons(event)
         reportPenActivity(event)
+        if (erase?.finished == false || stylusTool.isEraser || tool == MotionEvent.TOOL_TYPE_ERASER) return eraseAlong(event)
         if (event.actionMasked == MotionEvent.ACTION_DOWN) strokePaused = inkingPaused
         if (strokePaused) return capturePausedStroke(event)
 
@@ -396,20 +478,21 @@ class OpenInkBridgeView @JvmOverloads constructor(
                 if (isDrawing) {
                     strokePoints.add(point)
                     epdAdapterManager.activeAdapter.drawPoint(point)
-                    epdAdapterManager.activeAdapter.endStroke()
-
-                    val smoothedStroke = CoreBridge.smoothStroke(strokePoints)
-                    commitStroke(DrawingStroke(smoothedStroke, strokeColor, strokeWidth, stylusTool))
-                    
-                    onStrokeCompleted?.invoke(smoothedStroke)
-                    strokePoints.clear()
-                    isDrawing = false
-                    
-                    invalidate() // Trigger redraw to render the smoothed vector path
+                    finishStroke()
                 }
             }
         }
         return true
+    }
+
+    private fun finishStroke() {
+        epdAdapterManager.activeAdapter.endStroke()
+        val smoothedStroke = CoreBridge.smoothStroke(strokePoints)
+        commitStroke(DrawingStroke(smoothedStroke, strokeColor, strokeWidth, penTool))
+        onStrokeCompleted?.invoke(smoothedStroke)
+        strokePoints.clear()
+        isDrawing = false
+        invalidate() // Trigger redraw to render the smoothed vector path
     }
 
     private fun currentPoint(event: MotionEvent) = PenPoint(
@@ -444,14 +527,104 @@ class OpenInkBridgeView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (isDrawing) {
                 strokePoints.add(currentPoint(event))
-                val stroke = CoreBridge.smoothStroke(strokePoints.toList())
-                strokePoints.clear()
-                isDrawing = false
-                strokePaused = false
-                onStrokeCompleted?.invoke(stroke)
+                finishPausedStroke()
             }
         }
         return true
+    }
+
+    private fun finishPausedStroke() {
+        val stroke = CoreBridge.smoothStroke(strokePoints.toList())
+        strokePoints.clear()
+        isDrawing = false
+        strokePaused = false
+        onStrokeCompleted?.invoke(stroke)
+    }
+
+    /** An erasing stroke in progress, from its first event to its UP and the erase being applied. */
+    private class EraseSession(val before: List<DrawingStroke>, val wholeStrokes: Boolean, var onPanel: Boolean) {
+        var panelUsed = false
+        var finished = false
+        var last: FloatArray? = null
+    }
+
+    /**
+     * Erases along the stylus. Where the backend erases on the panel, it shows the erase at ink speed
+     * and the strokes are cut once, at pen-up, along the path it erased: the view then clears that
+     * path from what it shows rather than re-rendering the cut strokes, so the result matches the
+     * panel exactly. Elsewhere the strokes are cut and redrawn as the stylus moves.
+     */
+    private fun eraseAlong(event: MotionEvent): Boolean {
+        val adapter = epdAdapterManager.activeAdapter
+        val end = event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL
+        val session = erase?.takeUnless { it.finished } ?: run {
+            if (end) return true
+            // The stroke the eraser interrupts keeps what was drawn of it.
+            if (isDrawing) if (strokePaused) finishPausedStroke() else finishStroke()
+            val wholeStrokes = stylusTool == StylusTool.ERASER_STROKE ||
+                event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
+            EraseSession(completedStrokes.toList(), wholeStrokes, onPanel = adapter.capabilities().panelErase)
+                .also { erase = it; updateInking() }
+        }
+        if (session.onPanel) {
+            val background = if (session.panelUsed) eraserBackgroundBitmap else drawEraserBackground()
+            session.onPanel = adapter.eraseOnPanel(event, eraserRadiusPx.roundToInt(), background)
+            session.panelUsed = session.panelUsed || session.onPanel
+        }
+        if (!session.onPanel) eraseInView(session, event)
+        if (end) finishErase(session, event)
+        return true
+    }
+
+    private fun eraseInView(session: EraseSession, event: MotionEvent) {
+        val path = ArrayList<FloatArray>(event.historySize + 2)
+        session.last?.let(path::add)
+        for (i in 0 until event.historySize) path += floatArrayOf(event.getHistoricalX(i), event.getHistoricalY(i))
+        path += floatArrayOf(event.x, event.y)
+        session.last = path.last()
+        val after = StrokeEraser.erase(completedStrokes, path, eraserRadiusPx, resources.displayMetrics.density, session.wholeStrokes)
+        if (after != null) strokes = after
+    }
+
+    private fun finishErase(session: EraseSession, event: MotionEvent) {
+        session.finished = true
+        if (session.panelUsed) {
+            val path = epdAdapterManager.activeAdapter.panelErasePath().map { floatArrayOf(it.x, it.y) }
+                .ifEmpty { listOf(floatArrayOf(event.x, event.y)) }
+            val after = StrokeEraser.erase(completedStrokes, path, eraserRadiusPx, resources.displayMetrics.density, session.wholeStrokes)
+            when {
+                after == null -> {}
+                // Whole strokes go: redrawing what is left there is what the panel needs to show.
+                session.wholeStrokes -> strokes = after
+                else -> clearErasedPath(after, path)
+            }
+        }
+        val after = completedStrokes.toList()
+        val kept = after.toHashSet()
+        val previous = session.before.toHashSet()
+        val change = StrokeErase(session.before.filterNot(kept::contains), after.filterNot(previous::contains))
+        if (change.removed.isNotEmpty() || change.added.isNotEmpty()) onStrokesErased?.invoke(change)
+        // The ink resumes only once the view shows the applied erase: resuming earlier repaints the
+        // panel from the view as it was, flashing the erased ink back.
+        Choreographer.getInstance().postFrameCallback {
+            if (erase === session) {
+                erase = null
+                updateInking()
+            }
+        }
+    }
+
+    private fun drawEraserBackground(): Bitmap? {
+        val draw = eraserBackground ?: return null
+        if (width <= 0 || height <= 0) return null
+        val bitmap = eraserBackgroundBitmap?.takeIf { it.width == width && it.height == height }
+            ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                eraserBackgroundBitmap?.recycle()
+                eraserBackgroundBitmap = it
+            }
+        bitmap.eraseColor(Color.WHITE)
+        draw(Canvas(bitmap))
+        return bitmap
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
@@ -540,9 +713,9 @@ class OpenInkBridgeView @JvmOverloads constructor(
         super.onAttachedToWindow()
         if (epdAdapterManager.bind()) {
             epdAdapterManager.activeAdapter.setBrushStyle(strokeColor, strokeWidth)
-            epdAdapterManager.activeAdapter.setStylusTool(stylusTool)
+            epdAdapterManager.activeAdapter.setStylusTool(penTool)
             epdAdapterManager.activeAdapter.setStylusOnly(stylusOnly)
-            if (inkingPaused) {
+            if (inkSuspended) {
                 epdAdapterManager.activeAdapter.setRawDrawingEnabled(false)
             } else {
                 rawDrawingEnabled?.let(epdAdapterManager.activeAdapter::setRawDrawingEnabled)
@@ -559,6 +732,8 @@ class OpenInkBridgeView @JvmOverloads constructor(
         strokePoints.clear()
         isDrawing = false
         strokePaused = false
+        erase = null
+        inkSuspended = inkingPaused || stylusTool.isEraser
         penIdle.cancelTouch()
         epdAdapterManager.release()
         super.onDetachedFromWindow()

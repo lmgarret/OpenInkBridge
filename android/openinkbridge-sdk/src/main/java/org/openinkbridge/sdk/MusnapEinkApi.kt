@@ -2,7 +2,10 @@ package org.openinkbridge.sdk
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.view.MotionEvent
 import android.view.SurfaceView
 import android.view.View
 import java.lang.reflect.Constructor
@@ -133,6 +136,73 @@ internal class MusnapEinkApi private constructor(
             method.invoke(null, view, modes.getField(constantName).getInt(null))
             true
         }.getOrDefault(false)
+    }
+
+    /**
+     * The firmware's HWEraser in its quick style, which paints a background straight on the panel
+     * under the pen. Its pictures need an HWEraserView; one that is never shown does. Not
+     * HandEraser: its only usable style paints plain white, and its static `setStyle` persists
+     * system-wide (`persist.eraser.style`); the other style blocks the caller for seconds.
+     */
+    fun createPanelEraser(context: Context, fb: Any): PanelEraser {
+        val int = Int::class.javaPrimitiveType
+        val viewType = Class.forName("$PKG.view.HWEraserView")
+        val surfaceType = Class.forName("$PKG.view.HWEraserView\$SurfacePicture")
+        val fbType = Class.forName("$PKG.view.HWEraserView\$FBPicture")
+        val type = Class.forName("$PKG.view.HWEraser")
+        val view = viewType.getConstructor(Context::class.java).newInstance(context)
+        val surfacePicture = surfaceType.getConstructor(viewType).newInstance(view)
+        surfaceType.getMethod("bindColor", int).invoke(surfacePicture, Color.TRANSPARENT)
+        val picture = fbType.getConstructor().newInstance()
+        fbType.getMethod("bindColor", int).invoke(picture, Color.WHITE)
+        val constructor = type.getConstructor(Class.forName("$PKG.view.IFBHandSurface"), surfaceType, fbType)
+        val style = type.getMethod("setStyle", int)
+        val quick = type.getField("STYLE_QUICK").getInt(null)
+        // Each one takes about 200 ms to build (the firmware logs a missing native method on the
+        // way), so both are built once: one follows the pen, the other retraces its start.
+        val (live, retrace) = List(2) { constructor.newInstance(fb, surfacePicture, picture).also { style.invoke(it, quick) } }
+        return PanelEraser(
+            picture,
+            live,
+            retrace,
+            bindColor = fbType.getMethod("bindColor", int),
+            bindBitmap = fbType.getMethod("bindBitmap", Bitmap::class.java, Boolean::class.javaPrimitiveType),
+            pictureLocation = fbType.getMethod("setViewLocation", int, int),
+            radius = type.getMethod("setRadius", int),
+            touch = type.getMethod("onTouchEvent", int, int, int)
+        )
+    }
+
+    class PanelEraser(
+        private val picture: Any,
+        private val live: Any,
+        private val retracer: Any,
+        private val bindColor: Method,
+        private val bindBitmap: Method,
+        private val pictureLocation: Method,
+        private val radius: Method,
+        private val touch: Method
+    ) {
+        /** Sets what the erase uncovers: [background] at ([viewX], [viewY]) on screen, or white. */
+        fun start(background: Bitmap?, viewX: Int, viewY: Int, radiusPx: Int) {
+            if (background != null) bindBitmap.invoke(picture, background, false) else bindColor.invoke(picture, Color.WHITE)
+            pictureLocation.invoke(picture, viewX, viewY)
+            radius.invoke(live, radiusPx)
+            radius.invoke(retracer, radiusPx)
+        }
+
+        /** Erases along [points] with the second eraser, leaving the live one where it is. */
+        fun retrace(points: List<IntArray>) {
+            touch.invoke(retracer, MotionEvent.ACTION_DOWN, points[0][0], points[0][1])
+            // As in a live erase: the firmware erases from the first move on.
+            for (p in points) touch.invoke(retracer, MotionEvent.ACTION_MOVE, p[0], p[1])
+        }
+
+        // One point per event, as the notes app does. An UP repaints the panel from the eraser's
+        // view, flashing the erased ink back until the host redraws, so the eraser never sees it.
+        fun touch(action: Int, x: Int, y: Int) {
+            if (action != MotionEvent.ACTION_UP) touch.invoke(live, action, x, y)
+        }
     }
 
     fun fullRefresh(context: Context): Boolean {
