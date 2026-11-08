@@ -265,6 +265,11 @@ var OpenInkBridge = (() => {
   var INK_DOCUMENT_SCHEMA_VERSION = 1;
   var DEFAULT_STROKE_COLOR = "#000000";
   var DEFAULT_STROKE_WIDTH = 4;
+  var PenButtons = {
+    NONE: 0,
+    PRIMARY: 1,
+    SECONDARY: 2
+  };
   var HEX_COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
   var NAMED_COLOR = /^[a-z]{1,32}$/i;
   var FUNCTION_COLOR = /^(?:rgb|rgba|hsl|hsla)\([0-9+\-.,%/\s]+\)$/i;
@@ -288,7 +293,7 @@ var OpenInkBridge = (() => {
   }
   function isValidStrokePoint(value) {
     if (!isRecord(value)) return false;
-    return isFiniteCoordinate(value.x) && isFiniteCoordinate(value.y) && isFiniteNumberInRange(value.pressure, 0, 16) && isFiniteNumberInRange(value.tilt, -180, 180) && isFiniteNumberInRange(value.timestamp, 0, Number.MAX_SAFE_INTEGER);
+    return isFiniteCoordinate(value.x) && isFiniteCoordinate(value.y) && isFiniteNumberInRange(value.pressure, 0, 16) && isFiniteNumberInRange(value.tilt, -180, 180) && isFiniteNumberInRange(value.timestamp, 0, Number.MAX_SAFE_INTEGER) && (value.buttons === void 0 || Number.isInteger(value.buttons) && isFiniteNumberInRange(value.buttons, 0, 255));
   }
   function validateStrokePoints(value, maxPoints = 1e5) {
     if (!Array.isArray(value) || value.length > maxPoints) return null;
@@ -300,13 +305,15 @@ var OpenInkBridge = (() => {
     return points;
   }
   function cloneStrokePoint(point) {
-    return {
+    const clone = {
       x: point.x,
       y: point.y,
       pressure: point.pressure,
       tilt: point.tilt,
       timestamp: point.timestamp
     };
+    if (point.buttons) clone.buttons = point.buttons;
+    return clone;
   }
   function cloneStrokePoints(points) {
     return points.map(cloneStrokePoint);
@@ -342,7 +349,8 @@ var OpenInkBridge = (() => {
         y: 0.25 * previous.y + 0.5 * current.y + 0.25 * next.y,
         pressure: 0.25 * previous.pressure + 0.5 * current.pressure + 0.25 * next.pressure,
         tilt: 0.25 * previous.tilt + 0.5 * current.tilt + 0.25 * next.tilt,
-        timestamp: current.timestamp
+        timestamp: current.timestamp,
+        ...current.buttons ? { buttons: current.buttons } : {}
       });
     }
     smoothed.push(cloneStrokePoint(points[points.length - 1]));
@@ -836,7 +844,9 @@ var OpenInkBridge = (() => {
       y: finiteOrZero(event.clientY - rect.top),
       pressure: Number.isFinite(event.pressure) ? Math.max(0, Math.min(16, event.pressure)) : 0.5,
       tilt: Number.isFinite(event.tiltX) ? Math.max(-180, Math.min(180, event.tiltX)) : 0,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      // Pointer Events report a pen's barrel button as buttons bit 2.
+      ...event.pointerType === "pen" && (event.buttons & 2) !== 0 ? { buttons: PenButtons.PRIMARY } : {}
     };
   }
   function invokeStrokeCallbacks(callbacks, points) {
@@ -957,7 +967,12 @@ var OpenInkBridge = (() => {
     try {
       const output = bindings.smooth_stroke_wasm(JSON.stringify(points));
       const parsed = validateStrokePoints(JSON.parse(output));
-      if (parsed) return parsed;
+      if (parsed && parsed.length === points.length) {
+        return parsed.map((point, index) => {
+          const buttons = points[index].buttons;
+          return buttons ? { ...point, buttons } : point;
+        });
+      }
       throw new TypeError("WASM returned an invalid stroke payload");
     } catch (error) {
       logger.error(

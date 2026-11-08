@@ -91,6 +91,25 @@ A pen surface keeps the geometry it was first bound with — resized, it still r
 inks nothing — so the adapter binds a new overlay whenever the drawing region changes size (a
 WebView enabling writing mode on a canvas, a layout change), and only moves it otherwise.
 
+## Stylus button
+
+The pen's barrel button is a standard Android stylus button (`BTN_STYLUS` →
+`BUTTON_STYLUS_PRIMARY`), and the firmware ignores it: it keeps inking while the button is held.
+The firmware's own points carry no buttons, so the adapter records the button state of the
+`MotionEvent`s delivered alongside them and matches each point by timestamp.
+
+* The button is reported only while the tip touches the screen, never while hovering.
+* Pressing it mid-stroke makes the driver lift and touch down again within a few milliseconds, so
+  the stroke splits in two at the press; the second part carries the button. Releasing it does not
+  split the stroke.
+* `setInkingPaused(true)` turns the fast path off (`setAutoHandWrite(false)`) and clears what it
+  inked. The firmware starts inking before the app sees the button, so a stroke started with the
+  button held shows its ink for about half a second before it is cleared. Points lag the input by a couple of
+  hundred milliseconds; those stamped before the pause still complete and commit the stroke the
+  firmware was inking.
+
+Hover is reported (`ACTION_HOVER_*`), with no distance.
+
 ## Refresh modes
 
 | OIP refresh mode | Firmware constant (`android.eink.api.EinkMode`) |
@@ -144,4 +163,6 @@ API probes successfully, regardless of brand: Musnap devices report rebranded bu
   system refuses to start the WebView's renderer for it and WebView content stays blank. Starting
   the app from the launcher clears the flag; restarts from `adb` did not.
 * The firmware pen is restricted to `TOOL_TYPE_STYLUS`; the eraser end should therefore reach the
-  host as ordinary touch input. Not tested.
+  host as ordinary touch input. Not tested: the Musnap Ocean's pen has no eraser end.
+* `setInkingPaused` and the live button listener are native-view only; WebView pages get the
+  button state on the points of finished strokes.

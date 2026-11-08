@@ -33,7 +33,8 @@ internal class AhwStrokeAssembler {
         tilt: Float,
         timestamp: Long,
         offsetX: Float = 0f,
-        offsetY: Float = 0f
+        offsetY: Float = 0f,
+        buttons: Int = PenButtons.NONE
     ): List<PenPoint>? {
         if (!x.isFinite() || !y.isFinite()) return null
         val point = PenPoint(
@@ -41,7 +42,8 @@ internal class AhwStrokeAssembler {
             y = y + offsetY,
             pressure = if (pressure.isFinite()) pressure.coerceIn(0f, 1f) else 0f,
             tilt = if (tilt.isFinite()) tilt else 0f,
-            timestamp = timestamp
+            timestamp = timestamp,
+            buttons = buttons
         )
         when (action) {
             AhwAction.DOWN -> {
@@ -76,6 +78,47 @@ internal class AhwStrokeAssembler {
         val stroke = points.toList()
         reset()
         return stroke
+    }
+}
+
+/**
+ * Barrel-button state over time, taken from the `MotionEvent`s delivered alongside the firmware
+ * pen. The firmware's own points carry no buttons but share the events' `eventTime`, and they
+ * arrive later than the events, so each point is matched to the state at its timestamp.
+ */
+internal class StylusButtonTimeline(private val capacity: Int = 64) {
+    private val times = LongArray(capacity)
+    private val states = IntArray(capacity)
+    private var size = 0
+    private var start = 0
+
+    @Synchronized
+    fun record(eventTime: Long, buttons: Int) {
+        if (size > 0) {
+            val last = (start + size - 1) % capacity
+            if (states[last] == buttons) return
+            if (eventTime < times[last]) return
+        }
+        val slot = (start + size) % capacity
+        times[slot] = eventTime
+        states[slot] = buttons
+        if (size < capacity) size++ else start = (start + 1) % capacity
+    }
+
+    /** The buttons held at [eventTime]: the last change at or before it. */
+    @Synchronized
+    fun buttonsAt(eventTime: Long): Int {
+        for (i in size - 1 downTo 0) {
+            val slot = (start + i) % capacity
+            if (times[slot] <= eventTime) return states[slot]
+        }
+        return PenButtons.NONE
+    }
+
+    @Synchronized
+    fun reset() {
+        size = 0
+        start = 0
     }
 }
 

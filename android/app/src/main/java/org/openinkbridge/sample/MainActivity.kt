@@ -17,6 +17,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.updatePadding
 import org.openinkbridge.sdk.OpenInkBridgeView
+import org.openinkbridge.sdk.PenButtons
 import org.openinkbridge.sdk.OpenInkBridgeWebView
 import org.openinkbridge.sdk.OpenInkBridgeLogger
 import org.openinkbridge.sdk.LogLevel
@@ -315,7 +316,7 @@ open class MainActivity : AppCompatActivity() {
             setPadding(8, 8, 8, 8)
         }
         val title = TextView(this).apply {
-            text = "Native Canvas (Low-Latency)"
+            text = NATIVE_CANVAS_TITLE
             setTextColor(Color.parseColor("#28a745"))
             textSize = 14f
             gravity = Gravity.CENTER
@@ -324,6 +325,18 @@ open class MainActivity : AppCompatActivity() {
         nativeViewOpt = OpenInkBridgeView(this).apply {
             setBrushStyle(currentColor, currentWidth)
             setStylusOnly(isStylusOnlyMode)
+            // Holding the barrel button pauses inking: those strokes are only reported, as an app
+            // would use for selecting or erasing.
+            setOnStylusButtonListener { buttons ->
+                setInkingPaused(buttons and PenButtons.PRIMARY != 0)
+            }
+            setOnStrokeListener { points ->
+                if (isInkingPaused || points.any { it.buttons != PenButtons.NONE }) {
+                    title.text = "Button stroke: ${points.size} points (not inked)"
+                } else {
+                    title.text = NATIVE_CANVAS_TITLE
+                }
+            }
         }
         panel.addView(title)
         panel.addView(nativeViewOpt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
@@ -372,5 +385,9 @@ open class MainActivity : AppCompatActivity() {
         } catch (e: java.lang.Exception) {
             android.util.Log.e("OpenInkBridge", "Failed to inspect Onyx classes", e)
         }
+    }
+
+    private companion object {
+        const val NATIVE_CANVAS_TITLE = "Native Canvas (Low-Latency) — hold the pen button to pause ink"
     }
 }

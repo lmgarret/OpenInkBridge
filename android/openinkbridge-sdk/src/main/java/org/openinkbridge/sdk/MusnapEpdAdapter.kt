@@ -10,6 +10,7 @@ import android.graphics.PixelFormat
 import android.graphics.PorterDuff
 import android.graphics.Rect
 import android.os.Build
+import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -50,12 +51,16 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
     private var statusReason: String? = null
 
     private val assembler = AhwStrokeAssembler()
+    private val buttonTimeline = StylusButtonTimeline()
     private var strokeColor = Color.BLACK
     private var strokeWidth = 5f
     private var rawDrawingEnabled = true
     private var windowFocused = true
     private var hostShown = true
     private var autoHandWriteApplied: Boolean? = null
+    // Uptime at which inking was last turned off, while it stays off. Firmware points lag the
+    // input, so points stamped before it still finish the stroke the firmware was inking.
+    @Volatile private var inkingOffSince: Long? = null
     private var drawingLimit: Rect? = null
     private val region = Rect()
     private var clearScheduled = false
@@ -183,7 +188,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         }
         surface.setZOrderOnTop(true)
         surface.holder.setFormat(PixelFormat.TRANSPARENT)
-        surface.setOnTouchListener { _, event -> acceptsTouch(event) }
+        surface.setOnTouchListener { _, event -> onOverlayTouch(event) }
 
         val callback = object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {}
@@ -256,11 +261,13 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
 
     private val ahwSink = object : MusnapEinkApi.AhwSink {
         override fun onPoint(action: Int, x: Float, y: Float, pressure: Float, tilt: Float, timestamp: Long) {
+            if (inkingOffSince?.let { timestamp >= it } == true) return
             if (action == AhwAction.DOWN) findOverlayCanvas()?.beginVendorStroke()
             val stroke = assembler.onPoint(
                 action, x, y, pressure, tilt, timestamp,
                 offsetX = region.left.toFloat(),
-                offsetY = region.top.toFloat()
+                offsetY = region.top.toFloat(),
+                buttons = buttonTimeline.buttonsAt(timestamp)
             ) ?: return
             handOff(stroke)
         }
@@ -285,7 +292,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                 // smoothing would move the stroke at pen-up. Otherwise match the smoothing the
                 // view applies to strokes it captures itself.
                 val committed = if (hostRendersWithFirmwarePen()) stroke else CoreBridge.smoothStroke(stroke)
-                (hostView as OpenInkBridgeView).addCompletedStroke(committed)
+                (hostView as OpenInkBridgeView).commitCapturedStroke(committed)
                 clearHardwareScribble()
             }
             else -> clearHardwareScribble()
@@ -365,8 +372,22 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         return canvas.visibility == View.VISIBLE
     }
 
-    private fun acceptsTouch(event: MotionEvent): Boolean =
-        inkingActive() && event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS
+    /**
+     * The overlay sees the stylus events before the host does. Buttons are reported first, so a
+     * host that pauses inking in its button listener gets this very stroke routed to itself.
+     */
+    private fun onOverlayTouch(event: MotionEvent): Boolean {
+        if (event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) return false
+        val buttons = PenButtons.fromAndroidButtonState(event.buttonState)
+        buttonTimeline.record(event.eventTime, buttons)
+        (hostView as? OpenInkBridgeView)?.reportStylusButtons(buttons)
+        val active = inkingActive()
+        if (!active && event.actionMasked == MotionEvent.ACTION_DOWN) {
+            // The firmware started inking this stroke before the host paused it: it is the host's.
+            inkingOffSince = inkingOffSince?.let { minOf(it, event.eventTime) }
+        }
+        return active
+    }
 
     private fun applyAutoHandWrite() {
         val api = api ?: return
@@ -376,7 +397,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         try {
             api.setAutoHandWrite(fb, enabled)
             autoHandWriteApplied = enabled
-            if (!enabled) assembler.reset()
+            inkingOffSince = if (enabled) null else SystemClock.uptimeMillis()
         } catch (error: Throwable) {
             OpenInkBridgeLogger.w(Subsystem.Backend, TAG, "AUTO_HANDWRITE_FAILED", "setAutoHandWrite($enabled) failed: ${error.message}")
         }

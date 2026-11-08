@@ -5,6 +5,7 @@ import {
     cloneStrokePoints,
     normalizeStrokeColor,
     normalizeStrokeWidth,
+    PenButtons,
     StrokePoint,
     StylingOptions,
     validateStrokePoints
@@ -663,7 +664,9 @@ function pointFromEvent(event: PointerEvent, element: HTMLElement): StrokePoint 
         y: finiteOrZero(event.clientY - rect.top),
         pressure: Number.isFinite(event.pressure) ? Math.max(0, Math.min(16, event.pressure)) : 0.5,
         tilt: Number.isFinite(event.tiltX) ? Math.max(-180, Math.min(180, event.tiltX)) : 0,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        // Pointer Events report a pen's barrel button as buttons bit 2.
+        ...(event.pointerType === 'pen' && (event.buttons & 2) !== 0 ? { buttons: PenButtons.PRIMARY } : {})
     };
 }
 

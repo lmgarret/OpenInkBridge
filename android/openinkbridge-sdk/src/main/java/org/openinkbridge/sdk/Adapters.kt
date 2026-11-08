@@ -469,7 +469,7 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
 
                         (view as? OpenInkBridgeView)?.let { canvas ->
                             canvas.post {
-                                canvas.addCompletedStroke(finishedStroke)
+                                canvas.commitCapturedStroke(finishedStroke)
                                 clearHardwareScribble()
                             }
                         }

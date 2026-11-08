@@ -64,7 +64,13 @@ export function smoothStroke(points: readonly StrokePoint[]): StrokePoint[] {
     try {
         const output = bindings.smooth_stroke_wasm(JSON.stringify(points));
         const parsed = validateStrokePoints(JSON.parse(output));
-        if (parsed) return parsed;
+        // The Rust core has no button field; smoothing keeps each point's own, like timestamps.
+        if (parsed && parsed.length === points.length) {
+            return parsed.map((point, index) => {
+                const buttons = points[index].buttons;
+                return buttons ? { ...point, buttons } : point;
+            });
+        }
         throw new TypeError('WASM returned an invalid stroke payload');
     } catch (error) {
         logger.error(

@@ -121,6 +121,20 @@ test('JavaScript smoothing matches the shared protocol-v1 golden vectors', () =>
     }
 });
 
+test('stroke points carry barrel buttons through parsing, cloning and smoothing', () => {
+    const { PRIMARY, SECONDARY } = model.PenButtons;
+    const points = [point(0, 0), { ...point(1, 1, 0.5, 0, 2), buttons: PRIMARY }, point(2, 2, 0.5, 0, 3)];
+
+    assert.deepEqual(bridgeModule.parseNativeStrokePayload(JSON.stringify(points)).points, points);
+    assert.deepEqual(model.smoothStrokeJs(points).map(p => p.buttons), [undefined, PRIMARY, undefined]);
+    assert.equal(model.cloneStrokePoint({ ...point(0, 0), buttons: SECONDARY }).buttons, SECONDARY);
+    assert.equal('buttons' in model.cloneStrokePoint(point(0, 0)), false);
+
+    assert.equal(model.isValidStrokePoint({ ...point(0, 0), buttons: 1.5 }), false);
+    assert.equal(model.isValidStrokePoint({ ...point(0, 0), buttons: -1 }), false);
+    assert.equal(model.isValidStrokePoint({ ...point(0, 0), buttons: 'primary' }), false);
+});
+
 test('native payload parser accepts legacy and scoped v1 messages and rejects malformed data', () => {
     const points = [point(1, 2)];
     assert.deepEqual(bridgeModule.parseNativeStrokePayload(JSON.stringify(points)).points, points);
