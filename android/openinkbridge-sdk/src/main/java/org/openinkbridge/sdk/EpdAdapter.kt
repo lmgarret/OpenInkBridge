@@ -1,6 +1,9 @@
 package org.openinkbridge.sdk
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.PointF
+import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.View
 
@@ -24,7 +27,9 @@ data class EpdAdapterCapabilities(
      * [EpdAdapter.renderStroke] draws committed strokes with the same vendor pen engine that inks
      * the live preview, so a stroke looks identical before and after pen-up.
      */
-    val vendorStrokeRendering: Boolean = false
+    val vendorStrokeRendering: Boolean = false,
+    /** [EpdAdapter.eraseOnPanel] shows an eraser on the panel at ink speed. */
+    val panelErase: Boolean = false
 )
 
 data class EpdAdapterProbeResult(
@@ -134,12 +139,27 @@ interface EpdAdapter {
     /**
      * Set a boundary limit rectangle for low-latency drawing.
      */
-    fun setDrawingLimit(rect: android.graphics.Rect?) {}
+    fun setDrawingLimit(rect: Rect?) {}
 
     /**
      * Select the pen used for the low-latency preview (and for [renderStroke], when supported).
      */
     fun setStylusTool(tool: StylusTool) {}
+
+    /**
+     * Erase a circle of [radiusPx] straight on the panel along the touch stream, at ink speed, while
+     * the low-latency ink is off, painting [background] (host-sized, the content under the strokes)
+     * or white. The host's own content is unchanged until it applies the erase. Feed it every event
+     * of the erasing stroke, from its first, which may be mid-stroke, to its UP. Returns false when
+     * the backend cannot.
+     */
+    fun eraseOnPanel(event: MotionEvent, radiusPx: Int, background: Bitmap? = null): Boolean = false
+
+    /**
+     * The points the current or last [eraseOnPanel] erase went through, in host coordinates: not
+     * every point of the stroke, so an erase applied along these matches what the panel erased.
+     */
+    fun panelErasePath(): List<PointF> = emptyList()
 
     /**
      * Draw a committed stroke with the vendor's own pen engine into a software-backed [canvas]
@@ -157,3 +177,6 @@ interface EpdAdapterIntrospection {
     fun probe(view: View): EpdAdapterProbeResult
     fun status(): EpdAdapterStatus
 }
+
+internal fun EpdAdapter.capabilities(): EpdAdapterCapabilities =
+    (this as? EpdAdapterIntrospection)?.status()?.capabilities ?: EpdAdapterCapabilities()

@@ -110,6 +110,56 @@ The firmware's own points carry no buttons, so the adapter records the button st
 
 Hover is reported (`ACTION_HOVER_*`), with no distance.
 
+### Erasing with the button
+
+Erasing from the app's own view is slow on this panel: every redraw waits for an ordinary view
+update, and redrawing while the user moves holds up the next one. With an eraser selected
+(`StylusTool.ERASER_POINT`, `ERASER_STROKE`), `OpenInkBridgeView` erases on the panel itself instead,
+through the adapter's `eraseOnPanel` and the firmware's `HWEraser` in its quick style: it paints the
+eraser background (white without one) under a circle of the eraser's radius along the pen, as fast
+as the ink. The view applies the erase to its strokes at pen-up; the redraw then shows the real
+content.
+
+* The background is the view's size and holds what lies under the strokes (grid lines, a page),
+  drawn when the erase starts.
+* Resuming the ink redraws the view. Resumed before the strokes drop the erased ink, the erased
+  strokes flash back for a moment, so the view resumes it only once it has applied the erase, even
+  if the eraser was deselected first.
+* The eraser never gets the stroke's UP: it would repaint the panel from the eraser's view, which
+  flashes the erased ink back the same way.
+* Its pictures need an `HWEraserView`; one that is created but never shown does. Its default track
+  style draws into that view, so nothing shows until the redraw.
+* Building an `HWEraser` takes about 200 ms: the firmware calls a native method it lacks
+  (`FBPaint.nativeSetDitherMode`) and logs the error. The adapter builds its eraser once, when the
+  overlay is ready, and only rebinds the background per erase; built at the first erase, it made
+  the panel blink and left the start unerased.
+
+Measured on the Musnap Ocean: the erase starts about 30 ms after the touch, and each call takes
+about 5 ms. Feeding it every historical point (about 50 per event) took over 500 ms per event and
+fell behind the pen, so the adapter sends the newest point and two more of each batch. The panel
+therefore erases chords of a quick curve, so the view cuts the strokes along `panelErasePath`, the
+points it actually went through, not the stroke's own points.
+
+With the button, the firmware has already started inking when the app learns of it (the button
+is reported only once the tip touches). Pausing it cancels that stroke a few milliseconds of input
+in, and the starting circle may show bits of the erased strokes until pen-up, when the view
+redraws. Erasing that circle again (whole start, start circle alone, the reported late points, at
+50–500 ms), drawing an outline as a cursor and pausing by refusing the stylus instead of turning the
+fast path off were all tried on the Musnap Ocean: each extra pass overlaps the live erase's panel
+updates and glitches more than it fixes. An eraser selected before the pen touches has none of this.
+
+* No cursor. `setShowBorder(true)` draws none in the quick style. `HandEraser`, the eraser the
+  notes app uses, has a circle style that blocks the caller for seconds; its only usable style
+  paints plain white, and its static `setStyle` persists system-wide (`persist.eraser.style`, `1` by
+  default), so the adapter does not use it.
+* Re-rendering the cut strokes does not match the erase: the panel erases every pixel inside the
+  circle, a cut stroke ends on a point and the pen draws its end anew. The view clears the same
+  circles from its stroke layer instead; the cut strokes show as rendered only when that area is
+  next redrawn. Each cut end is placed where the stroke crosses the eraser's edge, a quarter of
+  the stroke's half-width outside it, which matched the panel best.
+* Cutting a long scribble took a second checking every eraser point against every stroke point;
+  bucketing the eraser path by position brought it to about 150 ms.
+
 ## Refresh modes
 
 | OIP refresh mode | Firmware constant (`android.eink.api.EinkMode`) |
@@ -166,6 +216,7 @@ twelve.
 | Pen fast path | `IFBHandSurface.setAhwToolTypes`, `setAhwPen`, `setAutoHandWrite` |
 | Stroke points | `IFBHandSurface.setAhwTouchListenerV2` / `setAhwTouchListener` |
 | Committed strokes | `android.eink.view.HandPen(int, boolean)`, `setCanvasBoard`, `onTouchEventV2(HandPoint)`, `draw` |
+| Panel eraser | `android.eink.view.HWEraser(IFBHandSurface, SurfacePicture, FBPicture)`, `setRadius`, `setStyle(STYLE_QUICK)`, `onTouchEvent(int, int, int)`; `HWEraserView.SurfacePicture.bindColor`, `HWEraserView.FBPicture.bindBitmap`/`bindColor`, `setViewLocation` |
 | Refresh | `android.eink.api.ViewAPI.setUpdateMode`, `EinkAPI.applyFullScreenRefresh` |
 
 The same firmware may ship on other iReader-based devices. The adapter selects itself wherever the
