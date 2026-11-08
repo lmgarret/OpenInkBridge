@@ -605,10 +605,11 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
             val start = {
                 host.getLocationOnScreen(hostLocation)
                 surface.getLocationOnScreen(overlayLocation)
-                val x = hostLocation[0]
-                val y = hostLocation[1]
-                onEraserThread { start(background, x, y, radiusPx) }
-                (hostLocation[0] - overlayLocation[0]) to (hostLocation[1] - overlayLocation[1])
+                // The eraser works in overlay coordinates and the background is in the host's.
+                val dx = hostLocation[0] - overlayLocation[0]
+                val dy = hostLocation[1] - overlayLocation[1]
+                onEraserThread { start(background, -dx, -dy, radiusPx) }
+                dx to dy
             }
             var started = false
             // Each call redraws the panel under the eraser, so not every point of a batch: a few

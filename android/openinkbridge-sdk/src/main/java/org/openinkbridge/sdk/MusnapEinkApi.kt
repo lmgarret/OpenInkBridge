@@ -183,10 +183,13 @@ internal class MusnapEinkApi private constructor(
         private val radius: Method,
         private val touch: Method
     ) {
-        /** Sets what the erase uncovers: [background] at ([viewX], [viewY]) on screen, or white. */
-        fun start(background: Bitmap?, viewX: Int, viewY: Int, radiusPx: Int) {
+        /**
+         * Sets what the erase uncovers: [background], or white. The eraser copies the background
+         * from its own coordinates plus ([offsetX], [offsetY]): the overlay's position in it.
+         */
+        fun start(background: Bitmap?, offsetX: Int, offsetY: Int, radiusPx: Int) {
             if (background != null) bindBitmap.invoke(picture, background, false) else bindColor.invoke(picture, Color.WHITE)
-            pictureLocation.invoke(picture, viewX, viewY)
+            pictureLocation.invoke(picture, offsetX, offsetY)
             radius.invoke(live, radiusPx)
             radius.invoke(retracer, radiusPx)
         }
