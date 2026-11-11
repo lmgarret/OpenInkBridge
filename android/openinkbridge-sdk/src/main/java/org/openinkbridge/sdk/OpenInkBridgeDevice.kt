@@ -19,7 +19,7 @@ object OpenInkBridgeDevice {
      * Vendor probes, tried in order until one recognises the device. Each runs only the checks
      * its vendor needs and returns null elsewhere.
      */
-    private val vendorProbes: List<(BuildFacts) -> VendorFacts?> = listOf(OnyxDeviceProbe::probe)
+    private val vendorProbes: List<(BuildFacts) -> VendorFacts?> = listOf(OnyxDeviceProbe::probe, IReaderDeviceProbe::probe)
 
     @Volatile private var cachedVendor: Pair<BuildFacts, VendorFacts?>? = null
     private val table: DeviceTable by lazy(::loadDeviceTable)

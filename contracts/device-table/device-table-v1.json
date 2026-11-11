@@ -11,6 +11,11 @@
       "match": { "manufacturer": "Bigme" },
       "firmware": "bigme",
       "technology": "eink"
+    },
+    {
+      "match": { "panelModel": "ED070KC4" },
+      "technology": "eink",
+      "color": "monochrome"
     }
   ]
 }
