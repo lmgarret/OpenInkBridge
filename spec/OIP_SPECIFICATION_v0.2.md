@@ -255,7 +255,7 @@ All Profile A messages MUST be valid JSON strings conforming to `contracts/bridg
 
 ### 4.2 Formal Protocol Schema & Command Set
 
-The message schema defines three primary command/event types:
+The message schema defines five command/event types:
 
 ```
 +-----------------------------------------------------------------------------+
@@ -264,6 +264,8 @@ The message schema defines three primary command/event types:
 |  Host -> Native:   setWritingMode   (Configure bounds, brush style, toggle) |
 |  Host -> Native:   strokeDrawn      (Acknowledge vector commit)             |
 |  Native -> Host:   strokeFinished   (Emit smoothed stroke point array)      |
+|  Host -> Native:   getHardwareCapabilities  (Ask what the device can do)    |
+|  Native -> Host:   hardwareCapabilities     (OipHardwareCapabilities, §7.1) |
 +-----------------------------------------------------------------------------+
 ```
 
@@ -328,6 +330,33 @@ Sent by the Web SDK once the host application has completed rendering the stroke
 ```
 
 Upon receiving `strokeDrawn`, the native overlay clears its temporary fast-waveform preview scribbles to prevent ghosting or duplicate stroke overlap.
+
+#### 4. `getHardwareCapabilities` (Host $\to$ Native)
+Sent by the Web SDK to learn what the device and the native backend can do.
+
+```json
+{
+  "protocolVersion": 1,
+  "type": "getHardwareCapabilities",
+  "sessionId": "oib-canvas-1-mt27x-1",
+  "canvasId": "canvas-1"
+}
+```
+
+#### 5. `hardwareCapabilities` (Native $\to$ Host)
+The native bridge's reply to `getHardwareCapabilities`, routed like `strokeFinished`. The payload is an `OipHardwareCapabilities` document (§7.1).
+
+```json
+{
+  "protocolVersion": 1,
+  "type": "hardwareCapabilities",
+  "sessionId": "oib-canvas-1-mt27x-1",
+  "canvasId": "canvas-1",
+  "payload": { "schemaVersion": 2, "device": { "runtime": "android" } }
+}
+```
+
+Native bridges that predate these messages ignore the request. Hosts MUST therefore wait for the reply with a timeout, and fall back to their own detection (§7.1, Web runtime) when none arrives.
 
 ### 4.4 Multi-Canvas Lifecycle & State Transitions
 
@@ -451,29 +480,83 @@ The transition of touch event ownership between the raw hardware EPDC overlay an
 
 ### 7.1 Hardware Capability Discovery Schema
 
-Upon session initialization, platforms supporting direct hardware discovery MAY query the underlying driver for an `OipHardwareCapabilities` payload:
+Runtimes SHOULD expose an `OipHardwareCapabilities` document describing the device and the active backend, so applications can adapt to the screen and pen they run on (e.g. hide colour pens on a monochrome panel). It separates what the hardware is (`device`, `display`, `digitizer`) from what the active backend does with it (`backend`, `epdc`, `liveInk`). Schema version 2 replaces the unimplemented version 1 layout.
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "device": {
-    "manufacturer": "Onyx",
-    "model": "Note Air 3 C",
-    "platform": "Android SDK"
+    "manufacturer": "Chitech",
+    "brand": "Byybuo",
+    "model": "TAB-Executive",
+    "runtime": "android",
+    "firmware": { "value": "ireader", "source": "vendor" }
   },
-  "epdc": {
-    "supportedWaveforms": ["SPEED", "BALANCED", "QUALITY", "REGAL", "DU"],
-    "supportsPartialRefresh": true,
-    "hardwareAcceleration": true
+  "display": {
+    "technology": { "value": "eink", "source": "vendor" },
+    "color": { "value": "monochrome", "source": "deviceTable" },
+    "panelModel": "ED070KC4",
+    "widthPx": 1264,
+    "heightPx": 1680,
+    "ppi": 320
   },
   "digitizer": {
+    "stylus": true,
     "pressure": true,
     "tilt": true,
-    "hover": true,
-    "eraser": true
+    "hover": null,
+    "eraser": null
+  },
+  "backend": "ireader",
+  "epdc": {
+    "refreshModes": ["SPEED", "BALANCED", "QUALITY"],
+    "fullRefresh": true
+  },
+  "liveInk": {
+    "colors": { "kind": "fixed", "values": ["#000000", "#505050", "#FFFFFF"] }
+  },
+  "extras": {
+    "ireader.platform": "zhangyue_MTK8781_14.0"
   }
 }
 ```
+
+This is what an iReader-firmware tablet sold under another brand reports: the firmware is recognised by its API, its panel's colour comes from the device table, and its live ink only has the firmware pen's three colours.
+
+**Unknown values.** A runtime that cannot establish a value reports `null`; it MUST NOT guess one. Values that may be inferred rather than reported are wrapped as `{ "value": ..., "source": ... }`, where `source` is one of:
+
+* **`vendor`**: reported by a vendor SDK, firmware API or vendor system property.
+* **`deviceTable`**: looked up in the shared device table, [`contracts/device-table/device-table-v1.json`](../contracts/device-table/device-table-v1.json).
+* **`heuristic`**: inferred from generic signals that can be wrong (e.g. CSS media queries).
+* **`none`**: unknown; `value` is `null`.
+
+**Fields.**
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `device.manufacturer`, `brand`, `model` | string or `null` | As the operating system reports them. Rebranded devices report the reseller's names. |
+| `device.runtime` | `"android"`, `"linux"`, `"web"` | The OIP runtime producing the document. |
+| `device.firmware` | sourced string | Firmware family, when known: `"onyx"`, `"ireader"`, `"remarkable"`, … |
+| `display.technology` | sourced `"eink"` or `"conventional"` | Panel technology. |
+| `display.color` | sourced `"monochrome"` or `"color"` | Whether the panel shows colour (e.g. E Ink Kaleido, Gallery). |
+| `display.panelModel` | string or `null` | Panel part number, when the system reports one. |
+| `display.widthPx`, `heightPx` | integer or `null` | Full panel size in physical pixels, in its natural orientation. |
+| `display.ppi` | number or `null` | Pixel density as the platform reports it, which can differ from the panel's (the tablet above reports 320 for a 7-inch, 300 ppi panel). |
+| `digitizer.*` | boolean or `null` | A stylus digitizer is present, and reports pressure, tilt, hover or an eraser end. `null` where the platform only tells once the pen is used. |
+| `backend` | string or `null` | The active backend (`"onyx"`, `"ireader"`, `"canvas"`, …); `null` when none is bound. |
+| `epdc.refreshModes` | array | The refresh modes (§6.1) the backend maps to something real. Empty without refresh control. |
+| `epdc.fullRefresh` | boolean | The backend can trigger a full-screen refresh. |
+| `liveInk` | object or `null` | The backend's low-latency ink path; `null` without one. |
+| `liveInk.colors` | object or `null` | What that path can show: `{"kind": "full"}`, `{"kind": "greyscale"}`, or `{"kind": "fixed", "values": ["#000000", …]}` (opaque `#RRGGBB` colours); `null` when unknown. On a monochrome panel it is never more than `greyscale`. A colour panel may still have a fixed-colour live ink path. |
+| `extras` | object | Vendor-specific values, keyed `<vendor>.<name>` (e.g. `ireader.platform`, `onyx.colorType`). They may change between releases; a value two vendors share moves into the core fields in a later schema version. |
+
+Consumers MUST ignore fields they do not know.
+
+**Where runtimes find these values.**
+
+* **Android:** `android.os.Build`, the display's metrics, input devices with a stylus source, vendor SDKs and firmware APIs, and the device table.
+* **Linux:** the device tree model and evdev capabilities, which list pressure, tilt and eraser support up front.
+* **Web:** inside an OIP WebView, the native bridge's `hardwareCapabilities` reply (§4.3). A standalone browser can only use heuristics: CSS media queries (`update: slow`, `monochrome`), which e-ink browsers rarely report faithfully, and reports most values as unknown.
 
 ### 7.2 Developer Diagnostics & Telemetry Schema
 

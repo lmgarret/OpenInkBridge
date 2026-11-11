@@ -12,7 +12,12 @@ data class EpdAdapterCapabilities(
     val fullRefresh: Boolean = false,
     val drawingLimit: Boolean = false,
     val rawDrawingToggle: Boolean = false,
-    val hardwareScribbleHandoff: Boolean = false
+    val hardwareScribbleHandoff: Boolean = false,
+    /**
+     * What the low-latency ink can show; null when unknown. Hardware capabilities report greys
+     * for it on a monochrome panel whatever is set here.
+     */
+    val liveInkColors: LiveInkColors? = null
 )
 
 data class EpdAdapterProbeResult(
@@ -38,6 +43,10 @@ data class EpdAdapterStatus(
 }
 
 interface EpdAdapter {
+    /** Stable identifier of the backend, as reported in [HardwareCapabilities.backend]. */
+    val backendId: String
+        get() = javaClass.simpleName
+
     /**
      * Bind the adapter to the rendering view.
      */

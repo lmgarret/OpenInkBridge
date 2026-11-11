@@ -79,6 +79,10 @@ class OpenInkBridgeView @JvmOverloads constructor(
 
     private var stylusOnly = true
 
+    /** The device's hardware and what this view's backend does with it (OIP §7.1). */
+    fun hardwareCapabilities(): HardwareCapabilities =
+        OpenInkBridgeDevice.hardwareCapabilities(context, epdAdapterManager.activeAdapter.takeIf { epdAdapterManager.isBound })
+
     fun setStylusOnly(enabled: Boolean) {
         this.stylusOnly = enabled
         epdAdapterManager.activeAdapter.setStylusOnly(enabled)

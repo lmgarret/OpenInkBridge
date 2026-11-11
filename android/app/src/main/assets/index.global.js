@@ -261,11 +261,161 @@ var OpenInkBridge = (() => {
     return out;
   }
 
+  // src/capabilities.ts
+  var HARDWARE_CAPABILITIES_SCHEMA_VERSION = 2;
+  var VALUE_SOURCES = ["vendor", "deviceTable", "heuristic", "none"];
+  var RUNTIMES = ["android", "linux", "web"];
+  var TECHNOLOGIES = ["eink", "conventional"];
+  var PANEL_COLORS = ["monochrome", "color"];
+  var REFRESH_MODES = ["SPEED", "BALANCED", "QUALITY"];
+  var HEX_COLOR = /^#[0-9a-f]{6}$/i;
+  var MAX_STRING_LENGTH = 256;
+  var MAX_LIST_LENGTH = 64;
+  function parseHardwareCapabilities(input) {
+    const value = typeof input === "string" ? safeJson(input) : input;
+    if (!isRecord(value) || value.schemaVersion !== HARDWARE_CAPABILITIES_SCHEMA_VERSION) return null;
+    const device = record(value.device);
+    const display = record(value.display);
+    const digitizer = record(value.digitizer);
+    const epdc = record(value.epdc);
+    const runtime = oneOf(device.runtime, RUNTIMES);
+    if (!runtime) return null;
+    return {
+      schemaVersion: HARDWARE_CAPABILITIES_SCHEMA_VERSION,
+      device: {
+        manufacturer: text(device.manufacturer),
+        brand: text(device.brand),
+        model: text(device.model),
+        runtime,
+        firmware: sourced(device.firmware, text)
+      },
+      display: {
+        technology: sourced(display.technology, (v) => oneOf(v, TECHNOLOGIES)),
+        color: sourced(display.color, (v) => oneOf(v, PANEL_COLORS)),
+        panelModel: text(display.panelModel),
+        widthPx: positiveInteger(display.widthPx),
+        heightPx: positiveInteger(display.heightPx),
+        ppi: positiveNumber(display.ppi)
+      },
+      digitizer: {
+        stylus: flag(digitizer.stylus),
+        pressure: flag(digitizer.pressure),
+        tilt: flag(digitizer.tilt),
+        hover: flag(digitizer.hover),
+        eraser: flag(digitizer.eraser)
+      },
+      backend: text(value.backend),
+      epdc: {
+        refreshModes: list(epdc.refreshModes).map((mode) => oneOf(mode, REFRESH_MODES)).filter(isPresent),
+        fullRefresh: epdc.fullRefresh === true
+      },
+      liveInk: isRecord(value.liveInk) ? { colors: liveInkColors(value.liveInk.colors) } : null,
+      extras: extras(value.extras)
+    };
+  }
+  function detectBrowserCapabilities() {
+    const capabilities = unknownCapabilities("web");
+    if (mediaMatches("(update: slow)")) capabilities.display.technology = { value: "eink", source: "heuristic" };
+    if (mediaMatches("(monochrome)")) capabilities.display.color = { value: "monochrome", source: "heuristic" };
+    return capabilities;
+  }
+  function unknownCapabilities(runtime) {
+    return {
+      schemaVersion: HARDWARE_CAPABILITIES_SCHEMA_VERSION,
+      device: { manufacturer: null, brand: null, model: null, runtime, firmware: unknown() },
+      display: { technology: unknown(), color: unknown(), panelModel: null, widthPx: null, heightPx: null, ppi: null },
+      digitizer: { stylus: null, pressure: null, tilt: null, hover: null, eraser: null },
+      backend: null,
+      epdc: { refreshModes: [], fullRefresh: false },
+      liveInk: null,
+      extras: {}
+    };
+  }
+  function unknown() {
+    return { value: null, source: "none" };
+  }
+  function mediaMatches(query) {
+    try {
+      return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+    } catch {
+      return false;
+    }
+  }
+  function liveInkColors(value) {
+    if (!isRecord(value)) return null;
+    switch (value.kind) {
+      case "full":
+        return { kind: "full" };
+      case "greyscale":
+        return { kind: "greyscale" };
+      case "fixed": {
+        const values = list(value.values).filter((color) => typeof color === "string" && HEX_COLOR.test(color));
+        return values.length > 0 ? { kind: "fixed", values } : null;
+      }
+      default:
+        return null;
+    }
+  }
+  function sourced(input, read) {
+    if (!isRecord(input)) return unknown();
+    const value = read(input.value);
+    const source = oneOf(input.source, VALUE_SOURCES);
+    return value === null || !source || source === "none" ? unknown() : { value, source };
+  }
+  function extras(input) {
+    if (!isRecord(input)) return {};
+    const result = {};
+    for (const [key, value] of Object.entries(input).slice(0, MAX_LIST_LENGTH)) {
+      if (!/^[a-z0-9-]+\.[A-Za-z0-9._-]{1,64}$/.test(key)) continue;
+      if (typeof value === "string") {
+        if (value.length <= MAX_STRING_LENGTH) result[key] = value;
+      } else if (typeof value === "boolean" || typeof value === "number" && Number.isFinite(value) || value === null) {
+        result[key] = value;
+      }
+    }
+    return result;
+  }
+  function text(value) {
+    return typeof value === "string" && value.length > 0 && value.length <= MAX_STRING_LENGTH ? value : null;
+  }
+  function flag(value) {
+    return typeof value === "boolean" ? value : null;
+  }
+  function positiveInteger(value) {
+    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+  }
+  function positiveNumber(value) {
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+  }
+  function oneOf(value, allowed) {
+    return typeof value === "string" && allowed.includes(value) ? value : null;
+  }
+  function list(value) {
+    return Array.isArray(value) ? value.slice(0, MAX_LIST_LENGTH) : [];
+  }
+  function record(value) {
+    return isRecord(value) ? value : {};
+  }
+  function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function isPresent(value) {
+    return value !== null;
+  }
+  function safeJson(text2) {
+    if (text2.length > 1e6) return null;
+    try {
+      return JSON.parse(text2);
+    } catch {
+      return null;
+    }
+  }
+
   // src/model.ts
   var INK_DOCUMENT_SCHEMA_VERSION = 1;
   var DEFAULT_STROKE_COLOR = "#000000";
   var DEFAULT_STROKE_WIDTH = 4;
-  var HEX_COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+  var HEX_COLOR2 = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
   var NAMED_COLOR = /^[a-z]{1,32}$/i;
   var FUNCTION_COLOR = /^(?:rgb|rgba|hsl|hsla)\([0-9+\-.,%/\s]+\)$/i;
   var SAFE_CSS_COLOR_CHARACTERS = /^[#(),.%+\-/\sa-z0-9]+$/i;
@@ -275,7 +425,7 @@ var OpenInkBridge = (() => {
     if (color.length === 0 || color.length > 128 || !SAFE_CSS_COLOR_CHARACTERS.test(color)) {
       return fallback;
     }
-    if (HEX_COLOR.test(color) || NAMED_COLOR.test(color) || FUNCTION_COLOR.test(color)) {
+    if (HEX_COLOR2.test(color) || NAMED_COLOR.test(color) || FUNCTION_COLOR.test(color)) {
       return color;
     }
     if (typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("color", color)) {
@@ -287,7 +437,7 @@ var OpenInkBridge = (() => {
     return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1024 ? value : fallback;
   }
   function isValidStrokePoint(value) {
-    if (!isRecord(value)) return false;
+    if (!isRecord2(value)) return false;
     return isFiniteCoordinate(value.x) && isFiniteCoordinate(value.y) && isFiniteNumberInRange(value.pressure, 0, 16) && isFiniteNumberInRange(value.tilt, -180, 180) && isFiniteNumberInRange(value.timestamp, 0, Number.MAX_SAFE_INTEGER);
   }
   function validateStrokePoints(value, maxPoints = 1e5) {
@@ -348,7 +498,7 @@ var OpenInkBridge = (() => {
     smoothed.push(cloneStrokePoint(points[points.length - 1]));
     return smoothed;
   }
-  function isRecord(value) {
+  function isRecord2(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
   function isFiniteCoordinate(value) {
@@ -363,6 +513,9 @@ var OpenInkBridge = (() => {
   var MAX_NATIVE_PAYLOAD_LENGTH = 8 * 1024 * 1024;
   var LEGACY_SESSION_ID = "legacy";
   var CALLBACK_REGISTRY_KEY = "__openInkBridgeCallbackRegistryV1";
+  var CAPABILITIES_REGISTRY_KEY = "__openInkBridgeCapabilitiesRequestsV1";
+  var CAPABILITIES_CANVAS_ID = "hardware-capabilities";
+  var DEFAULT_CAPABILITIES_TIMEOUT_MS = 1e3;
   var sessionSequence = 0;
   function parseNativeStrokePayload(input) {
     let value = input;
@@ -378,7 +531,7 @@ var OpenInkBridge = (() => {
       const points2 = validateStrokePoints(value);
       return points2 ? { protocolVersion: BRIDGE_PROTOCOL_VERSION, points: points2 } : null;
     }
-    if (!isRecord2(value)) return null;
+    if (!isRecord3(value)) return null;
     if (value.protocolVersion !== void 0 && value.protocolVersion !== BRIDGE_PROTOCOL_VERSION) {
       return null;
     }
@@ -390,7 +543,7 @@ var OpenInkBridge = (() => {
     let pointValue = value.points;
     if (pointValue === void 0 && Array.isArray(value.payload)) {
       pointValue = value.payload;
-    } else if (pointValue === void 0 && isRecord2(value.payload)) {
+    } else if (pointValue === void 0 && isRecord3(value.payload)) {
       pointValue = value.payload.points;
     }
     const points = validateStrokePoints(pointValue);
@@ -403,11 +556,11 @@ var OpenInkBridge = (() => {
     };
   }
   var OpenInkBridgeSession = class {
-    constructor(owner, record) {
+    constructor(owner, record2) {
       this.owner = owner;
       this.destroyed = false;
-      this.id = record.id;
-      this.canvasId = record.canvasId;
+      this.id = record2.id;
+      this.canvasId = record2.canvasId;
     }
     setWritingMode(enabled, targetElement, options) {
       this.assertActive();
@@ -456,9 +609,9 @@ var OpenInkBridge = (() => {
       this.assertActive();
       const normalizedCanvasId = sanitizeIdentifier(canvasId) || `canvas-${++sessionSequence}`;
       const sessionId = `oib-${normalizedCanvasId}-${Date.now().toString(36)}-${++sessionSequence}`;
-      const record = this.createSessionRecord(sessionId, normalizedCanvasId);
-      this.sessions.set(sessionId, record);
-      return new OpenInkBridgeSession(this, record);
+      const record2 = this.createSessionRecord(sessionId, normalizedCanvasId);
+      this.sessions.set(sessionId, record2);
+      return new OpenInkBridgeSession(this, record2);
     }
     /** Check whether a callable native OpenInkBridge interface is present. */
     isSupported() {
@@ -472,38 +625,75 @@ var OpenInkBridge = (() => {
       );
       return supported;
     }
+    /**
+     * What the device and the native backend can do (OIP §7.1). Inside an OIP WebView it asks the
+     * native bridge; without one, or when the bridge does not answer within `timeoutMs` (bridges
+     * that predate the request ignore it), it reports what the browser can tell, which is little.
+     */
+    getHardwareCapabilities(options = {}) {
+      this.assertActive();
+      const nativeBridge = getNativeBridge();
+      if (!isMessageNativeBridge(nativeBridge)) return Promise.resolve(detectBrowserCapabilities());
+      const requestId = `oib-capabilities-${Date.now().toString(36)}-${++sessionSequence}`;
+      const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs >= 0 ? options.timeoutMs : DEFAULT_CAPABILITIES_TIMEOUT_MS;
+      const pending = capabilityRequests();
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          pending.delete(requestId);
+          logger.warn("JsBridge" /* JsBridge */, "NativeBridge", "CAPABILITIES_TIMEOUT", "No hardware capabilities from the native bridge; using browser detection");
+          resolve(detectBrowserCapabilities());
+        }, timeoutMs);
+        pending.set(requestId, (capabilities) => {
+          clearTimeout(timer);
+          resolve(capabilities);
+        });
+        try {
+          nativeBridge.postMessage(JSON.stringify({
+            protocolVersion: BRIDGE_PROTOCOL_VERSION,
+            type: "getHardwareCapabilities",
+            sessionId: requestId,
+            canvasId: CAPABILITIES_CANVAS_ID
+          }));
+        } catch (error) {
+          clearTimeout(timer);
+          pending.delete(requestId);
+          logger.error("JsBridge" /* JsBridge */, "NativeBridge", "CAPABILITIES_REQUEST_FAILED", errorMessage(error));
+          resolve(detectBrowserCapabilities());
+        }
+      });
+    }
     /** Backwards-compatible singleton API, scoped internally as the legacy session. */
     setWritingMode(enabled, targetElement, options) {
       this.configureSession(LEGACY_SESSION_ID, enabled, targetElement, options);
     }
     configureSession(sessionId, enabled, targetElement, options) {
       this.assertActive();
-      const record = this.requireSession(sessionId);
-      const normalizedOptions = normalizeOptions(options, record.options);
-      record.targetElement = targetElement;
-      record.options = normalizedOptions;
-      record.writingEnabled = enabled;
+      const record2 = this.requireSession(sessionId);
+      const normalizedOptions = normalizeOptions(options, record2.options);
+      record2.targetElement = targetElement;
+      record2.options = normalizedOptions;
+      record2.writingEnabled = enabled;
       if (this.isSupported()) {
-        this.removeFallbackListeners(record);
+        this.removeFallbackListeners(record2);
         if (enabled) {
-          record.activationOrder = ++this.activationSequence;
-          this.activeNativeSessionId = record.id;
-          this.invokeNativeWritingMode(record, true);
-        } else if (this.activeNativeSessionId === record.id) {
-          const nextRecord = this.findMostRecentlyActivatedNativeSession(record.id);
+          record2.activationOrder = ++this.activationSequence;
+          this.activeNativeSessionId = record2.id;
+          this.invokeNativeWritingMode(record2, true);
+        } else if (this.activeNativeSessionId === record2.id) {
+          const nextRecord = this.findMostRecentlyActivatedNativeSession(record2.id);
           this.activeNativeSessionId = nextRecord?.id || null;
           if (nextRecord) {
             this.invokeNativeWritingMode(nextRecord, true);
           } else {
-            this.invokeNativeWritingMode(record, false);
+            this.invokeNativeWritingMode(record2, false);
           }
         }
         return;
       }
       if (enabled) {
-        this.setupFallbackListeners(record, targetElement);
+        this.setupFallbackListeners(record2, targetElement);
       } else {
-        this.removeFallbackListeners(record);
+        this.removeFallbackListeners(record2);
       }
     }
     /** Notify native hardware that the corresponding software stroke is committed. */
@@ -511,20 +701,20 @@ var OpenInkBridge = (() => {
       const nativeBridge = getNativeBridge();
       if (!nativeBridge) return;
       try {
-        const record = this.sessions.get(sessionId);
-        if (isMessageNativeBridge(nativeBridge) && record) {
+        const record2 = this.sessions.get(sessionId);
+        if (isMessageNativeBridge(nativeBridge) && record2) {
           nativeBridge.postMessage(JSON.stringify({
             protocolVersion: BRIDGE_PROTOCOL_VERSION,
             type: "strokeDrawn",
             sessionId,
-            canvasId: record.canvasId
+            canvasId: record2.canvasId
           }));
         } else if (isDirectNativeBridge(nativeBridge) && typeof nativeBridge.onStrokeDrawnForSession === "function") {
           nativeBridge.onStrokeDrawnForSession(JSON.stringify({
             protocolVersion: BRIDGE_PROTOCOL_VERSION,
             type: "strokeDrawn",
             sessionId,
-            canvasId: record?.canvasId || sessionId
+            canvasId: record2?.canvasId || sessionId
           }));
         } else if (isDirectNativeBridge(nativeBridge) && typeof nativeBridge.onStrokeDrawn === "function") {
           nativeBridge.onStrokeDrawn();
@@ -549,26 +739,26 @@ var OpenInkBridge = (() => {
       return subscribe(this.strokeUpdateCallbacks, callback);
     }
     subscribeToSession(sessionId, event, callback) {
-      const record = this.requireSession(sessionId);
+      const record2 = this.requireSession(sessionId);
       if (event === "finished") {
-        return subscribe(record.strokeCallbacks, callback);
+        return subscribe(record2.strokeCallbacks, callback);
       }
       if (event === "started") {
-        return subscribe(record.strokeStartCallbacks, callback);
+        return subscribe(record2.strokeStartCallbacks, callback);
       }
-      return subscribe(record.strokeUpdateCallbacks, callback);
+      return subscribe(record2.strokeUpdateCallbacks, callback);
     }
     destroySession(sessionId) {
       if (sessionId === LEGACY_SESSION_ID) return;
-      const record = this.sessions.get(sessionId);
-      if (!record) return;
-      if (record.writingEnabled && record.targetElement) {
-        this.configureSession(sessionId, false, record.targetElement, record.options);
+      const record2 = this.sessions.get(sessionId);
+      if (!record2) return;
+      if (record2.writingEnabled && record2.targetElement) {
+        this.configureSession(sessionId, false, record2.targetElement, record2.options);
       }
-      this.removeFallbackListeners(record);
-      record.strokeCallbacks.clear();
-      record.strokeStartCallbacks.clear();
-      record.strokeUpdateCallbacks.clear();
+      this.removeFallbackListeners(record2);
+      record2.strokeCallbacks.clear();
+      record2.strokeStartCallbacks.clear();
+      record2.strokeUpdateCallbacks.clear();
       this.sessions.delete(sessionId);
     }
     setLogLevel(level) {
@@ -594,8 +784,8 @@ var OpenInkBridge = (() => {
         if (activeRecord) this.invokeNativeWritingMode(activeRecord, false);
         this.activeNativeSessionId = null;
       }
-      for (const record of Array.from(this.sessions.values())) {
-        this.removeFallbackListeners(record);
+      for (const record2 of Array.from(this.sessions.values())) {
+        this.removeFallbackListeners(record2);
       }
       this.sessions.clear();
       this.strokeCallbacks.clear();
@@ -625,9 +815,9 @@ var OpenInkBridge = (() => {
       };
     }
     requireSession(sessionId) {
-      const record = this.sessions.get(sessionId);
-      if (!record) throw new Error(`Unknown OpenInkBridge session: ${sessionId}`);
-      return record;
+      const record2 = this.sessions.get(sessionId);
+      if (!record2) throw new Error(`Unknown OpenInkBridge session: ${sessionId}`);
+      return record2;
     }
     installNativeCallback() {
       const bridgeWindow = getBridgeWindow();
@@ -673,16 +863,16 @@ var OpenInkBridge = (() => {
         );
         return;
       }
-      let record;
-      if (parsed.sessionId) record = this.sessions.get(parsed.sessionId);
-      if (!record && parsed.canvasId) {
-        record = Array.from(this.sessions.values()).find((candidate) => candidate.canvasId === parsed.canvasId);
+      let record2;
+      if (parsed.sessionId) record2 = this.sessions.get(parsed.sessionId);
+      if (!record2 && parsed.canvasId) {
+        record2 = Array.from(this.sessions.values()).find((candidate) => candidate.canvasId === parsed.canvasId);
       }
-      if (!record && !parsed.sessionId && !parsed.canvasId && this.activeNativeSessionId) {
-        record = this.sessions.get(this.activeNativeSessionId);
+      if (!record2 && !parsed.sessionId && !parsed.canvasId && this.activeNativeSessionId) {
+        record2 = this.sessions.get(this.activeNativeSessionId);
       }
-      if (!record && !parsed.sessionId && !parsed.canvasId) record = this.sessions.get(LEGACY_SESSION_ID);
-      if (!record) {
+      if (!record2 && !parsed.sessionId && !parsed.canvasId) record2 = this.sessions.get(LEGACY_SESSION_ID);
+      if (!record2) {
         logger.warn(
           "Synchronization" /* Synchronization */,
           "NativeBridge",
@@ -695,35 +885,35 @@ var OpenInkBridge = (() => {
         "Synchronization" /* Synchronization */,
         "NativeBridge",
         "STROKE_RECEIVED",
-        `Received finalized stroke with ${parsed.points.length} points for session ${record.id}`
+        `Received finalized stroke with ${parsed.points.length} points for session ${record2.id}`
       );
-      this.notifyFinished(record, parsed.points);
+      this.notifyFinished(record2, parsed.points);
     }
-    notifyFinished(record, points) {
-      invokeStrokeCallbacks(record.strokeCallbacks, points);
-      if (record.id !== LEGACY_SESSION_ID) invokeStrokeCallbacks(this.strokeCallbacks, points);
+    notifyFinished(record2, points) {
+      invokeStrokeCallbacks(record2.strokeCallbacks, points);
+      if (record2.id !== LEGACY_SESSION_ID) invokeStrokeCallbacks(this.strokeCallbacks, points);
     }
-    notifyStarted(record, point) {
-      invokePointCallbacks(record.strokeStartCallbacks, point);
-      if (record.id !== LEGACY_SESSION_ID) invokePointCallbacks(this.strokeStartCallbacks, point);
+    notifyStarted(record2, point) {
+      invokePointCallbacks(record2.strokeStartCallbacks, point);
+      if (record2.id !== LEGACY_SESSION_ID) invokePointCallbacks(this.strokeStartCallbacks, point);
     }
-    notifyUpdated(record, point) {
-      invokePointCallbacks(record.strokeUpdateCallbacks, point);
-      if (record.id !== LEGACY_SESSION_ID) invokePointCallbacks(this.strokeUpdateCallbacks, point);
+    notifyUpdated(record2, point) {
+      invokePointCallbacks(record2.strokeUpdateCallbacks, point);
+      if (record2.id !== LEGACY_SESSION_ID) invokePointCallbacks(this.strokeUpdateCallbacks, point);
     }
-    invokeNativeWritingMode(record, enabled) {
+    invokeNativeWritingMode(record2, enabled) {
       const nativeBridge = getNativeBridge();
-      if (!nativeBridge || !record.targetElement) return;
-      const rect = record.targetElement.getBoundingClientRect();
+      if (!nativeBridge || !record2.targetElement) return;
+      const rect = record2.targetElement.getBoundingClientRect();
       const payload = {
         protocolVersion: BRIDGE_PROTOCOL_VERSION,
         type: "setWritingMode",
-        sessionId: record.id,
-        canvasId: record.canvasId,
+        sessionId: record2.id,
+        canvasId: record2.canvasId,
         enabled,
-        color: record.options.color,
-        width: record.options.width,
-        stylusOnly: record.options.stylusOnly !== false,
+        color: record2.options.color,
+        width: record2.options.width,
+        stylusOnly: record2.options.stylusOnly !== false,
         rect: {
           left: finiteOrZero(rect.left),
           top: finiteOrZero(rect.top),
@@ -741,7 +931,7 @@ var OpenInkBridge = (() => {
           "JsBridge" /* JsBridge */,
           "NativeBridge",
           "SET_WRITING_MODE",
-          `Native writing mode enabled=${enabled} for session ${record.id}`,
+          `Native writing mode enabled=${enabled} for session ${record2.id}`,
           payload
         );
       } catch (error) {
@@ -754,45 +944,45 @@ var OpenInkBridge = (() => {
       }
     }
     findMostRecentlyActivatedNativeSession(excludedId) {
-      return Array.from(this.sessions.values()).filter((record) => record.id !== excludedId && record.writingEnabled && record.targetElement).sort((left, right) => right.activationOrder - left.activationOrder)[0];
+      return Array.from(this.sessions.values()).filter((record2) => record2.id !== excludedId && record2.writingEnabled && record2.targetElement).sort((left, right) => right.activationOrder - left.activationOrder)[0];
     }
-    setupFallbackListeners(record, element) {
-      if (record.fallbackBinding?.element === element) return;
-      this.removeFallbackListeners(record);
+    setupFallbackListeners(record2, element) {
+      if (record2.fallbackBinding?.element === element) return;
+      this.removeFallbackListeners(record2);
       const pointerDown = (event) => {
-        if (record.activePointerId !== null) return;
-        if (record.options.stylusOnly && event.pointerType !== "pen") return;
+        if (record2.activePointerId !== null) return;
+        if (record2.options.stylusOnly && event.pointerType !== "pen") return;
         event.preventDefault();
         tryCapturePointer(element, event.pointerId);
-        record.activePointerId = event.pointerId;
+        record2.activePointerId = event.pointerId;
         const point = pointFromEvent(event, element);
-        record.currentFallbackStroke = [point];
-        this.notifyStarted(record, point);
+        record2.currentFallbackStroke = [point];
+        this.notifyStarted(record2, point);
       };
       const pointerMove = (event) => {
-        if (record.activePointerId !== event.pointerId) return;
+        if (record2.activePointerId !== event.pointerId) return;
         event.preventDefault();
         const point = pointFromEvent(event, element);
-        record.currentFallbackStroke.push(point);
-        this.notifyUpdated(record, point);
+        record2.currentFallbackStroke.push(point);
+        this.notifyUpdated(record2, point);
       };
       const pointerUp = (event) => {
-        if (record.activePointerId !== event.pointerId) return;
+        if (record2.activePointerId !== event.pointerId) return;
         event.preventDefault();
         tryReleasePointer(element, event.pointerId);
-        record.activePointerId = null;
-        const points = record.currentFallbackStroke;
-        record.currentFallbackStroke = [];
-        if (points.length > 0) this.notifyFinished(record, points);
+        record2.activePointerId = null;
+        const points = record2.currentFallbackStroke;
+        record2.currentFallbackStroke = [];
+        if (points.length > 0) this.notifyFinished(record2, points);
       };
       const pointerCancel = (event) => {
-        if (record.activePointerId !== event.pointerId) return;
+        if (record2.activePointerId !== event.pointerId) return;
         tryReleasePointer(element, event.pointerId);
-        record.activePointerId = null;
-        record.currentFallbackStroke = [];
+        record2.activePointerId = null;
+        record2.currentFallbackStroke = [];
         logger.warn("PenInput" /* PenInput */, "PointerFallback", "PEN_CANCEL", "Pointer stroke cancelled");
       };
-      record.fallbackBinding = {
+      record2.fallbackBinding = {
         element,
         previousTouchAction: element.style.touchAction,
         pointerDown,
@@ -806,17 +996,17 @@ var OpenInkBridge = (() => {
       element.addEventListener("pointercancel", pointerCancel);
       element.style.touchAction = "none";
     }
-    removeFallbackListeners(record) {
-      const binding = record.fallbackBinding;
+    removeFallbackListeners(record2) {
+      const binding = record2.fallbackBinding;
       if (!binding) return;
       binding.element.removeEventListener("pointerdown", binding.pointerDown);
       binding.element.removeEventListener("pointermove", binding.pointerMove);
       binding.element.removeEventListener("pointerup", binding.pointerUp);
       binding.element.removeEventListener("pointercancel", binding.pointerCancel);
       binding.element.style.touchAction = binding.previousTouchAction;
-      record.fallbackBinding = null;
-      record.currentFallbackStroke = [];
-      record.activePointerId = null;
+      record2.fallbackBinding = null;
+      record2.currentFallbackStroke = [];
+      record2.activePointerId = null;
     }
     assertActive() {
       if (this.destroyed) throw new Error("OpenInkBridge has been destroyed");
@@ -882,6 +1072,39 @@ var OpenInkBridge = (() => {
   function getNativeBridge() {
     return getBridgeWindow()?.OpenInkBridgeNative;
   }
+  function capabilityRequests() {
+    const bridgeWindow = getBridgeWindow();
+    if (!bridgeWindow) return /* @__PURE__ */ new Map();
+    let pending = bridgeWindow[CAPABILITIES_REGISTRY_KEY];
+    if (!pending) {
+      const requests = /* @__PURE__ */ new Map();
+      pending = requests;
+      bridgeWindow[CAPABILITIES_REGISTRY_KEY] = requests;
+      bridgeWindow.onOpenInkBridgeHardwareCapabilities = (payload) => answerCapabilityRequest(requests, payload);
+    }
+    return pending;
+  }
+  function answerCapabilityRequest(pending, input) {
+    let envelope = input;
+    if (typeof input === "string") {
+      if (input.length > MAX_NATIVE_PAYLOAD_LENGTH) return;
+      try {
+        envelope = JSON.parse(input);
+      } catch {
+        return;
+      }
+    }
+    if (!isRecord3(envelope) || envelope.protocolVersion !== BRIDGE_PROTOCOL_VERSION || envelope.type !== "hardwareCapabilities") return;
+    const requestId = readIdentifier(envelope.sessionId);
+    const resolve = requestId ? pending.get(requestId) : void 0;
+    if (!requestId || !resolve) return;
+    pending.delete(requestId);
+    const capabilities = parseHardwareCapabilities(envelope.payload);
+    if (!capabilities) {
+      logger.error("JsBridge" /* JsBridge */, "NativeBridge", "INVALID_CAPABILITIES", "Rejected malformed hardware capabilities from the native bridge");
+    }
+    resolve(capabilities ?? detectBrowserCapabilities());
+  }
   function isDirectNativeBridge(value) {
     return typeof value?.setWritingMode === "function";
   }
@@ -896,7 +1119,7 @@ var OpenInkBridge = (() => {
   function sanitizeIdentifier(value) {
     return typeof value === "string" && /^[a-z0-9._:-]{1,128}$/i.test(value) ? value : "";
   }
-  function isRecord2(value) {
+  function isRecord3(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
   function finiteOrZero(value) {

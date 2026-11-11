@@ -19,6 +19,7 @@ import java.lang.reflect.Method
  * Standard Android drawing fallback using standard views and Canvas invalidation.
  */
 class FallbackCanvasAdapter : EpdAdapter, EpdAdapterIntrospection {
+    override val backendId: String = "canvas"
     private var view: View? = null
     private var adapterState = EpdAdapterState.UNINITIALIZED
     private val paint = Paint().apply {
@@ -121,6 +122,7 @@ class FallbackCanvasAdapter : EpdAdapter, EpdAdapterIntrospection {
  * minimizing latency to ~10-15ms on supported Android hardware (Samsung, Pixel, foldables).
  */
 class JetpackInkAdapter : EpdAdapter, EpdAdapterIntrospection {
+    override val backendId: String = "jetpack-ink"
     private var view: View? = null
     private var predictor: MotionEventPredictor? = null
     private var adapterState = EpdAdapterState.UNINITIALIZED
@@ -255,6 +257,7 @@ class JetpackInkAdapter : EpdAdapter, EpdAdapterIntrospection {
  * open-source developers to build and distribute the app legally.
  */
 class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
+    override val backendId: String = "onyx"
     private var view: View? = null
     private var adapterState = EpdAdapterState.UNINITIALIZED
     private var statusReason: String? = null
@@ -858,6 +861,7 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
  * Bigme EPD Adapter that communicates with Bigme Low-Latency Drawing SDK using Java Reflection.
  */
 class BigmeEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
+    override val backendId: String = "bigme"
     private var view: View? = null
     private var adapterState = EpdAdapterState.UNAVAILABLE
 

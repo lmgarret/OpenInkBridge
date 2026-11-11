@@ -1,5 +1,6 @@
 import { logger, LogLevel, Subsystem } from './logger';
 import { collectDiagnostics, dumpConfiguration, createBugReport, DiagnosticsReport } from './diagnostics';
+import { detectBrowserCapabilities, HardwareCapabilities, parseHardwareCapabilities } from './capabilities';
 import {
     cloneStrokePoint,
     cloneStrokePoints,
@@ -16,6 +17,9 @@ export const BRIDGE_PROTOCOL_VERSION = 1 as const;
 const MAX_NATIVE_PAYLOAD_LENGTH = 8 * 1024 * 1024;
 const LEGACY_SESSION_ID = 'legacy';
 const CALLBACK_REGISTRY_KEY = '__openInkBridgeCallbackRegistryV1';
+const CAPABILITIES_REGISTRY_KEY = '__openInkBridgeCapabilitiesRequestsV1';
+const CAPABILITIES_CANVAS_ID = 'hardware-capabilities';
+const DEFAULT_CAPABILITIES_TIMEOUT_MS = 1000;
 
 export type StrokeCallback = (points: StrokePoint[]) => void;
 
@@ -84,7 +88,9 @@ interface NativeCallbackRegistry {
 interface BridgeWindow extends Window {
     OpenInkBridgeNative?: NativeBridgeApi;
     onOpenInkBridgeStrokeFinished?: (payload: unknown) => void;
+    onOpenInkBridgeHardwareCapabilities?: (payload: unknown) => void;
     [CALLBACK_REGISTRY_KEY]?: NativeCallbackRegistry;
+    [CAPABILITIES_REGISTRY_KEY]?: Map<string, (capabilities: HardwareCapabilities) => void>;
 }
 
 let sessionSequence = 0;
@@ -225,6 +231,47 @@ export class OpenInkBridge {
                 : 'Native OpenInkBridge interface not present; using browser fallbacks'
         );
         return supported;
+    }
+
+    /**
+     * What the device and the native backend can do (OIP §7.1). Inside an OIP WebView it asks the
+     * native bridge; without one, or when the bridge does not answer within `timeoutMs` (bridges
+     * that predate the request ignore it), it reports what the browser can tell, which is little.
+     */
+    public getHardwareCapabilities(options: { timeoutMs?: number } = {}): Promise<HardwareCapabilities> {
+        this.assertActive();
+        const nativeBridge = getNativeBridge();
+        if (!isMessageNativeBridge(nativeBridge)) return Promise.resolve(detectBrowserCapabilities());
+
+        const requestId = `oib-capabilities-${Date.now().toString(36)}-${++sessionSequence}`;
+        const timeoutMs = Number.isFinite(options.timeoutMs) && (options.timeoutMs as number) >= 0
+            ? options.timeoutMs as number
+            : DEFAULT_CAPABILITIES_TIMEOUT_MS;
+        const pending = capabilityRequests();
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                pending.delete(requestId);
+                logger.warn(Subsystem.JsBridge, 'NativeBridge', 'CAPABILITIES_TIMEOUT', 'No hardware capabilities from the native bridge; using browser detection');
+                resolve(detectBrowserCapabilities());
+            }, timeoutMs);
+            pending.set(requestId, (capabilities) => {
+                clearTimeout(timer);
+                resolve(capabilities);
+            });
+            try {
+                nativeBridge.postMessage(JSON.stringify({
+                    protocolVersion: BRIDGE_PROTOCOL_VERSION,
+                    type: 'getHardwareCapabilities',
+                    sessionId: requestId,
+                    canvasId: CAPABILITIES_CANVAS_ID
+                }));
+            } catch (error) {
+                clearTimeout(timer);
+                pending.delete(requestId);
+                logger.error(Subsystem.JsBridge, 'NativeBridge', 'CAPABILITIES_REQUEST_FAILED', errorMessage(error));
+                resolve(detectBrowserCapabilities());
+            }
+        });
     }
 
     /** Backwards-compatible singleton API, scoped internally as the legacy session. */
@@ -713,6 +760,42 @@ function getBridgeWindow(): BridgeWindow | null {
 
 function getNativeBridge(): NativeBridgeApi | undefined {
     return getBridgeWindow()?.OpenInkBridgeNative;
+}
+
+/** Pending `getHardwareCapabilities` requests, shared by every bridge instance on the page. */
+function capabilityRequests(): Map<string, (capabilities: HardwareCapabilities) => void> {
+    const bridgeWindow = getBridgeWindow();
+    if (!bridgeWindow) return new Map();
+    let pending = bridgeWindow[CAPABILITIES_REGISTRY_KEY];
+    if (!pending) {
+        const requests = new Map<string, (capabilities: HardwareCapabilities) => void>();
+        pending = requests;
+        bridgeWindow[CAPABILITIES_REGISTRY_KEY] = requests;
+        bridgeWindow.onOpenInkBridgeHardwareCapabilities = (payload: unknown) => answerCapabilityRequest(requests, payload);
+    }
+    return pending;
+}
+
+function answerCapabilityRequest(pending: Map<string, (capabilities: HardwareCapabilities) => void>, input: unknown): void {
+    let envelope = input;
+    if (typeof input === 'string') {
+        if (input.length > MAX_NATIVE_PAYLOAD_LENGTH) return;
+        try {
+            envelope = JSON.parse(input);
+        } catch {
+            return;
+        }
+    }
+    if (!isRecord(envelope) || envelope.protocolVersion !== BRIDGE_PROTOCOL_VERSION || envelope.type !== 'hardwareCapabilities') return;
+    const requestId = readIdentifier(envelope.sessionId);
+    const resolve = requestId ? pending.get(requestId) : undefined;
+    if (!requestId || !resolve) return;
+    pending.delete(requestId);
+    const capabilities = parseHardwareCapabilities(envelope.payload);
+    if (!capabilities) {
+        logger.error(Subsystem.JsBridge, 'NativeBridge', 'INVALID_CAPABILITIES', 'Rejected malformed hardware capabilities from the native bridge');
+    }
+    resolve(capabilities ?? detectBrowserCapabilities());
 }
 
 function isDirectNativeBridge(value: NativeBridgeApi | undefined): value is DirectNativeBridgeApi {

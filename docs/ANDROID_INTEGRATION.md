@@ -112,6 +112,32 @@ successfully. On BOOX hardware, the Onyx adapter is eligible only when the appli
 matching runtime dependency. Missing classes, probe failures, and initialization errors are reported
 and fall through to Jetpack motion prediction or the Canvas adapter.
 
+### Hardware capabilities
+
+Apps that adapt to the device (e.g. hide colour pens on a monochrome panel) read its hardware
+capabilities, the OIP §7.1 document:
+
+```kotlin
+// The device alone, without a view: backend, epdc and liveInk are empty.
+val device = OpenInkBridgeDevice.hardwareCapabilities(context)
+if (device.display.color.value == PanelColor.MONOCHROME) hideColourPens()
+
+// The device and what the view's bound backend does with it.
+val liveInkColors = drawingCanvas.hardwareCapabilities().liveInk?.colors
+```
+
+Values that cannot be established are null. `display.technology`, `display.color` and
+`device.firmware` carry where they came from (`ValueSource`): a vendor SDK or firmware API, the
+shared device table ([`contracts/device-table/device-table-v1.json`](../contracts/device-table/device-table-v1.json)),
+or nothing. The digitizer comes from the input devices Android lists; whether the pen hovers or has
+an eraser end is only known once it is used, so those stay null. `extras` holds vendor-specific
+values (e.g. `onyx.colorType`), which may change between releases. `toJson()` gives the document as
+the protocol sends it; `OpenInkBridgeWebView` answers the Web SDK's `getHardwareCapabilities()`
+with it.
+
+On BOOX devices the panel's colour comes from the Onyx SDK (`Device.currentDevice().getColorType()`)
+when the vendor runtime is present; without it, only the device table applies.
+
 ---
 
 ## 5. View Lifecycle & E-Ink Flicker Prevention
