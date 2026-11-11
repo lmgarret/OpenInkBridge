@@ -51,7 +51,7 @@ class SketchActivity : AppCompatActivity() {
         // Configure brush style
         drawingCanvas.setBrushStyle(Color.BLACK, 5.0f)
 
-        // Pick the pen. Backends with their own pen engine (Musnap) use the matching vendor pen
+        // Pick the pen. Backends with their own pen engine (iReader) use the matching vendor pen
         // for both the live preview and the committed stroke.
         drawingCanvas.setStylusTool(StylusTool.PEN)
 
@@ -79,8 +79,8 @@ had drawn it; pass `notify = false` to keep it from the listener.
 
 View updates that can wait (marks, highlights, status text) belong in `runWhenPenIdle`. It runs
 them once the pen has been idle for `penIdleDelayMs` (2 s by default) or has left hover range, and
-at once if it already is. On Musnap, updating a view while the user writes delays the ink of the
-next stroke (see the [Musnap guide](./musnap.md#keep-the-screen-still-while-the-user-writes)):
+at once if it already is. On iReader firmware, updating a view while the user writes delays the ink of
+the next stroke (see the [iReader guide](./ireader.md#keep-the-screen-still-while-the-user-writes)):
 
 ```kotlin
 drawingCanvas.setOnStrokeListener { points ->
@@ -129,7 +129,7 @@ drawingCanvas.setOnStrokesErasedListener { change ->
 }
 ```
 
-On backends that erase on the panel (`EpdAdapterCapabilities.panelErase`, Musnap), the erase shows
+On backends that erase on the panel (`EpdAdapterCapabilities.panelErase`, iReader), the erase shows
 at ink speed over the background and is applied to the strokes at pen-up; the background is drawn
 when an erase starts, and without one the erased area is white until the view redraws. Elsewhere
 the strokes are cut and redrawn as the stylus moves.
@@ -151,7 +151,7 @@ inside are dropped, each piece outside is committed and reported to the stroke l
 own, and a stroke drawn entirely inside one is not committed at all.
 
 Live ink stays out of the regions on backends that support it: Onyx (as `TouchHelper.setLimitRect`'s
-exclude list) and Musnap (as the firmware pen's clip, see [musnap.md](musnap.md)). Others ink
+exclude list) and iReader (as the firmware pen's clip, see [ireader.md](ireader.md)). Others ink
 everywhere while the pen moves, and the cut applies at pen-up.
 
 ---
@@ -203,8 +203,8 @@ dependencies {
 }
 ```
 
-Musnap tablets need no extra dependency: the firmware's pen API is part of the device framework and
-is resolved by reflection. See the [Musnap Integration Guide](./musnap.md).
+iReader-firmware tablets (e.g. Musnap) need no extra dependency: the firmware's pen API is part of
+the device framework and is resolved by reflection. See the [iReader Integration Guide](./ireader.md).
 
 `EpdAdapterManager` probes ordered candidates and keeps only an adapter that initializes
 successfully. On BOOX hardware, the Onyx adapter is eligible only when the application supplies the
@@ -237,7 +237,7 @@ To ensure non-direct drawing areas (such as traditional whiteboard canvases or n
 
 Hosts that implement the same handoff for an `OpenInkBridgeView` themselves (toggling
 `setRawDrawingEnabled` on `ACTION_DOWN`) should do so only when
-`view.needsRawDrawingTouchHandoff` is true. Backends that ink only inside their own region (Musnap)
+`view.needsRawDrawingTouchHandoff` is true. Backends that ink only inside their own region (iReader)
 report false, and on them the toggle costs the live ink of the first stroke after any touch outside
 the view: the vendor starts inking before the app sees the touch.
 

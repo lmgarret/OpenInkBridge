@@ -1,7 +1,7 @@
 package org.openinkbridge.sdk
 
 /**
- * Platform-independent pieces of the Musnap (iReader firmware) backend, kept free of Android and
+ * Platform-independent pieces of the iReader firmware backend, kept free of Android and
  * vendor types so they can be unit-tested on the JVM.
  */
 
@@ -122,7 +122,7 @@ internal class StylusButtonTimeline(private val capacity: Int = 64) {
     }
 }
 
-internal object MusnapPenMapping {
+internal object IReaderPenMapping {
     /**
      * The firmware pen takes its width in physical pixels (verified on a Musnap Ocean by matching a
      * 4px host stroke) and draws it constant. `OpenInkBridgeView` renders a committed stroke at

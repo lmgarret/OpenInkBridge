@@ -24,7 +24,7 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 
 /**
- * Musnap e-ink tablets (iReader / ZhangYue firmware, e.g. Musnap Ocean).
+ * E-ink tablets on iReader / ZhangYue firmware (e.g. Musnap Ocean, and rebranded MT8781 tablets).
  *
  * The firmware exposes a system pen fast path ("auto handwriting") through the `android.eink`
  * package of its framework: strokes are inked straight to the EPDC while the pen moves, and the
@@ -39,8 +39,8 @@ import android.widget.FrameLayout
  * are used.
  */
 @SuppressLint("ClickableViewAccessibility")
-class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
-    private var api: MusnapEinkApi? = null
+class IReaderEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
+    private var api: IReaderEinkApi? = null
     private var hostView: View? = null
     private var overlay: SurfaceView? = null
     private var overlayParent: ViewGroup? = null
@@ -89,7 +89,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
 
     private var stylusTool = StylusTool.PEN
 
-    private var panelEraser: MusnapEinkApi.PanelEraser? = null
+    private var panelEraser: IReaderEinkApi.PanelEraser? = null
     private val panelEraserFeed = PanelEraserFeed { action, x, y -> onEraserThread { touch(action, x, y) } }
     private var eraserThread: HandlerThread? = null
     private var eraserHandler: Handler? = null
@@ -117,23 +117,23 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
 
     override fun probe(view: View): EpdAdapterProbeResult {
         return try {
-            api = MusnapEinkApi.resolve()
+            api = IReaderEinkApi.resolve()
             EpdAdapterProbeResult(supported = true)
         } catch (error: Throwable) {
             EpdAdapterProbeResult(
                 supported = false,
-                reason = "Musnap android.eink pen API unavailable: ${error.message ?: error.javaClass.simpleName}"
+                reason = "iReader android.eink pen API unavailable: ${error.message ?: error.javaClass.simpleName}"
             )
         }
     }
 
     override fun init(view: View) {
-        val resolved = api ?: MusnapEinkApi.resolve().also { api = it }
+        val resolved = api ?: IReaderEinkApi.resolve().also { api = it }
         hostView = view
         adapterState = EpdAdapterState.DEGRADED
         statusReason = "Waiting for the pen overlay surface"
         view.post { attachOverlay(view, resolved) }
-        OpenInkBridgeLogger.i(Subsystem.Backend, TAG, "INIT", "Musnap pen API resolved (listener V2=${resolved.hasListenerV2})")
+        OpenInkBridgeLogger.i(Subsystem.Backend, TAG, "INIT", "iReader pen API resolved (listener V2=${resolved.hasListenerV2})")
         warnIfEdgeGesturesStayArmed(view)
     }
 
@@ -162,7 +162,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         return null
     }
 
-    private fun attachOverlay(host: View, api: MusnapEinkApi) {
+    private fun attachOverlay(host: View, api: IReaderEinkApi) {
         if (hostView !== host || overlayParent != null) return
         val parent = findOverlayParent(host)
         if (parent == null) {
@@ -288,7 +288,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         }
     }
 
-    private val ahwSink = object : MusnapEinkApi.AhwSink {
+    private val ahwSink = object : IReaderEinkApi.AhwSink {
         override fun onPoint(action: Int, x: Float, y: Float, pressure: Float, tilt: Float, timestamp: Long) {
             if (inkingOffSince?.let { timestamp >= it } == true) return
             // The clip keeps the firmware from inking there; should it report such a stroke
@@ -502,15 +502,15 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                 api.setPen(
                     fb,
                     penTypeFor(api, stylusTool),
-                    MusnapPenMapping.previewWidthPx(strokeWidth, density, pressure = 1f),
-                    MusnapPenMapping.previewColor(strokeColor)
+                    IReaderPenMapping.previewWidthPx(strokeWidth, density, pressure = 1f),
+                    IReaderPenMapping.previewColor(strokeColor)
                 )
             } else {
                 api.setPen(
                     fb,
                     api.penTypeSimple,
-                    MusnapPenMapping.previewWidthPx(strokeWidth, density),
-                    MusnapPenMapping.previewColor(strokeColor)
+                    IReaderPenMapping.previewWidthPx(strokeWidth, density),
+                    IReaderPenMapping.previewColor(strokeColor)
                 )
             }
         } catch (error: Throwable) {
@@ -553,7 +553,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
     override fun startStroke(tool: StylusTool, color: Int, width: Float) {
         previewPoints.clear()
         previewPaint.color = color
-        previewPaint.strokeWidth = MusnapPenMapping.previewWidthPx(width, hostView?.resources?.displayMetrics?.density ?: 1f)
+        previewPaint.strokeWidth = IReaderPenMapping.previewWidthPx(width, hostView?.resources?.displayMetrics?.density ?: 1f)
         hostView?.invalidate()
     }
 
@@ -591,7 +591,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
 
     override fun setRefreshMode(mode: EInkRefreshMode) {
         val host = hostView ?: return
-        if (api?.setUpdateMode(host, MusnapPenMapping.updateModeConstant(mode)) != true) {
+        if (api?.setUpdateMode(host, IReaderPenMapping.updateModeConstant(mode)) != true) {
             OpenInkBridgeLogger.w(Subsystem.Refresh, TAG, "SET_REFRESH_MODE_FAILED", "Could not apply $mode")
         }
     }
@@ -644,9 +644,9 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
      * calls run in order on a thread of their own, so a wait delays the erase, not the touch
      * events behind it.
      */
-    private fun onEraserThread(call: MusnapEinkApi.PanelEraser.() -> Unit) {
+    private fun onEraserThread(call: IReaderEinkApi.PanelEraser.() -> Unit) {
         val eraser = panelEraser ?: return
-        val handler = eraserHandler ?: HandlerThread("musnap-eraser").let { thread ->
+        val handler = eraserHandler ?: HandlerThread("ireader-eraser").let { thread ->
             thread.start()
             eraserThread = thread
             Handler(thread.looper).also { eraserHandler = it }
@@ -709,20 +709,20 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         return api.renderStroke(
             canvas,
             penTypeFor(api, stroke.tool),
-            MusnapPenMapping.previewWidthPx(stroke.width, density, pressure = 1f),
+            IReaderPenMapping.previewWidthPx(stroke.width, density, pressure = 1f),
             stroke.color,
             stroke.points
         )
     }
 
-    private fun penTypeFor(api: MusnapEinkApi, tool: StylusTool): Int =
-        api.penType(MusnapPenMapping.penTypeConstant(tool)) ?: api.penTypeSimple
+    private fun penTypeFor(api: IReaderEinkApi, tool: StylusTool): Int =
+        api.penType(IReaderPenMapping.penTypeConstant(tool)) ?: api.penTypeSimple
 
     override fun status(): EpdAdapterStatus =
         EpdAdapterStatus(state = adapterState, reason = statusReason, capabilities = capabilities())
 
     private companion object {
-        const val TAG = "MUSNAP"
+        const val TAG = "IREADER"
 
         /** Checked by the firmware's `IreaderEdgeGesture.isHandWriteScence` against the focused activity. */
         val HANDWRITING_ACTIVITY_MARKERS = listOf("ActivityNote", "ActivityRead", "ImageGalleryActivity")

@@ -131,7 +131,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
     /**
      * Run [action] once the pen is idle: no stroke for [penIdleDelayMs], or the pen out of range.
      * Runs it now if the pen is already idle. Use it for view updates that can wait (marks,
-     * highlights, status text): on some e-ink backends (Musnap) any view update made while the
+     * highlights, status text): on some e-ink backends (iReader) any view update made while the
      * user writes delays the ink of the next stroke by a couple of hundred milliseconds.
      * Actions run on the main thread, in the order they were queued.
      */
@@ -208,7 +208,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
     /**
      * Draw what the eraser uncovers, whatever lies under the strokes (a grid, a page), into a
      * canvas the size of this view, already filled white. Called when an erase starts, on backends
-     * that erase straight on the panel at ink speed (Musnap); without it the panel shows white
+     * that erase straight on the panel at ink speed (iReader); without it the panel shows white
      * there until the view redraws.
      */
     fun setEraserBackground(draw: ((Canvas) -> Unit)?) {
@@ -308,7 +308,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
     /**
      * A stroke the backend inked itself: recorded and reported now, but drawn into the view only
      * once the pen is idle, its vendor ink standing in until then. Redrawing the view while the
-     * user writes delays the next stroke's ink on some backends (Musnap).
+     * user writes delays the next stroke's ink on some backends (iReader).
      */
     internal fun commitInkedStroke(points: List<PenPoint>) {
         val pieces = outsideExcludedRegions(points)

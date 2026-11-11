@@ -15,11 +15,11 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 
-private const val TAG = "MUSNAP"
+private const val TAG = "IREADER"
 
 /** Reflective handle on the firmware's `android.eink` pen API, resolved once and fail-fast. */
 @SuppressLint("PrivateApi")
-internal class MusnapEinkApi private constructor(
+internal class IReaderEinkApi private constructor(
     private val surfaceViewConstructor: Constructor<*>,
     private val getFbSurface: Method,
     private val setAhwToolTypes: Method,
@@ -260,7 +260,7 @@ internal class MusnapEinkApi private constructor(
     companion object {
         private const val PKG = "android.eink"
 
-        fun resolve(): MusnapEinkApi {
+        fun resolve(): IReaderEinkApi {
             val surfaceView = Class.forName("$PKG.view.HWSurfaceView")
             val fbSurface = Class.forName("$PKG.view.IFBHandSurface")
             val listenerV1 = Class.forName("$PKG.view.IAhwTouchListener")
@@ -307,7 +307,7 @@ internal class MusnapEinkApi private constructor(
             val viewApi = runCatching { Class.forName("$PKG.api.ViewAPI") }.getOrNull()
             val einkApi = runCatching { Class.forName("$PKG.api.EinkAPI") }.getOrNull()
 
-            return MusnapEinkApi(
+            return IReaderEinkApi(
                 surfaceViewConstructor = surfaceView.getConstructor(Context::class.java),
                 getFbSurface = surfaceView.getMethod("getFBSurface"),
                 setAhwToolTypes = fbSurface.getMethod("setAhwToolTypes", IntArray::class.java),

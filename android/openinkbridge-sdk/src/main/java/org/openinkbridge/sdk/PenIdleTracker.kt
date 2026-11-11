@@ -77,7 +77,7 @@ internal class PenIdleTracker(var idleDelayMs: Long = 2000L) {
     }
 
     private companion object {
-        /** Longer than the gap between hover ending and the tip touching down (a few ms on Musnap). */
+        /** Longer than the gap between hover ending and the tip touching down (a few ms on iReader firmware). */
         const val PEN_LEFT_RANGE_MS = 150L
     }
 }

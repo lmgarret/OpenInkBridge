@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class MusnapInkTest {
+class IReaderInkTest {
 
     @Test
     fun assemblesStrokeFromDownMoveUp() {
@@ -139,46 +139,46 @@ class MusnapInkTest {
 
     @Test
     fun previewWidthIsLogicalWidthInPhysicalPixels() {
-        assertEquals(10f, MusnapPenMapping.previewWidthPx(5f, 2f, pressure = 1f), 0f)
-        assertEquals(0.5f, MusnapPenMapping.previewWidthPx(0f, 2f, pressure = 1f), 0f)
-        assertEquals(128f, MusnapPenMapping.previewWidthPx(500f, 2f, pressure = 1f), 0f)
-        assertEquals(5f, MusnapPenMapping.previewWidthPx(5f, 0f, pressure = 1f), 0f)
+        assertEquals(10f, IReaderPenMapping.previewWidthPx(5f, 2f, pressure = 1f), 0f)
+        assertEquals(0.5f, IReaderPenMapping.previewWidthPx(0f, 2f, pressure = 1f), 0f)
+        assertEquals(128f, IReaderPenMapping.previewWidthPx(500f, 2f, pressure = 1f), 0f)
+        assertEquals(5f, IReaderPenMapping.previewWidthPx(5f, 0f, pressure = 1f), 0f)
     }
 
     @Test
     fun previewMatchesTheHostRenderingAtTypicalPressure() {
         // OpenInkBridgeView draws width × density × pressure.
-        val hostWidth = 5f * 2f * MusnapPenMapping.TYPICAL_PRESSURE
+        val hostWidth = 5f * 2f * IReaderPenMapping.TYPICAL_PRESSURE
 
-        assertEquals(hostWidth, MusnapPenMapping.previewWidthPx(5f, 2f), 0f)
-        assertEquals(10f, MusnapPenMapping.previewWidthPx(5f, 2f, pressure = Float.NaN), 0f)
+        assertEquals(hostWidth, IReaderPenMapping.previewWidthPx(5f, 2f), 0f)
+        assertEquals(10f, IReaderPenMapping.previewWidthPx(5f, 2f, pressure = Float.NaN), 0f)
     }
 
     @Test
     fun previewColorSnapsToTheFirmwarePalette() {
-        assertEquals(MusnapPenMapping.PEN_BLACK, MusnapPenMapping.previewColor(0xFF000000.toInt()))
-        assertEquals(MusnapPenMapping.PEN_BLACK, MusnapPenMapping.previewColor(0xFF0000FF.toInt())) // blue
-        assertEquals(MusnapPenMapping.PEN_BLACK, MusnapPenMapping.previewColor(0xFFFF0000.toInt())) // red
+        assertEquals(IReaderPenMapping.PEN_BLACK, IReaderPenMapping.previewColor(0xFF000000.toInt()))
+        assertEquals(IReaderPenMapping.PEN_BLACK, IReaderPenMapping.previewColor(0xFF0000FF.toInt())) // blue
+        assertEquals(IReaderPenMapping.PEN_BLACK, IReaderPenMapping.previewColor(0xFFFF0000.toInt())) // red
         // The sample web page's green, which inked nothing when passed through as-is.
-        assertEquals(MusnapPenMapping.PEN_GRAY, MusnapPenMapping.previewColor(0xFF28A745.toInt()))
-        assertEquals(MusnapPenMapping.PEN_WHITE, MusnapPenMapping.previewColor(0xFFFFFFFF.toInt()))
+        assertEquals(IReaderPenMapping.PEN_GRAY, IReaderPenMapping.previewColor(0xFF28A745.toInt()))
+        assertEquals(IReaderPenMapping.PEN_WHITE, IReaderPenMapping.previewColor(0xFFFFFFFF.toInt()))
     }
 
     @Test
     fun everyToolMapsToAFirmwarePen() {
-        assertEquals("PEN_TYPE_GANGBI", MusnapPenMapping.penTypeConstant(StylusTool.PEN))
-        assertEquals("PEN_TYPE_QIANBI", MusnapPenMapping.penTypeConstant(StylusTool.PENCIL))
-        assertEquals("PEN_TYPE_MAOBI", MusnapPenMapping.penTypeConstant(StylusTool.BRUSH))
-        StylusTool.values().forEach { assertTrue(MusnapPenMapping.penTypeConstant(it).startsWith("PEN_TYPE_")) }
+        assertEquals("PEN_TYPE_GANGBI", IReaderPenMapping.penTypeConstant(StylusTool.PEN))
+        assertEquals("PEN_TYPE_QIANBI", IReaderPenMapping.penTypeConstant(StylusTool.PENCIL))
+        assertEquals("PEN_TYPE_MAOBI", IReaderPenMapping.penTypeConstant(StylusTool.BRUSH))
+        StylusTool.values().forEach { assertTrue(IReaderPenMapping.penTypeConstant(it).startsWith("PEN_TYPE_")) }
     }
 
     @Test
     fun everyRefreshModeMapsToAFirmwareConstant() {
-        val names = EInkRefreshMode.values().map(MusnapPenMapping::updateModeConstant)
+        val names = EInkRefreshMode.values().map(IReaderPenMapping::updateModeConstant)
 
         assertEquals(EInkRefreshMode.values().size, names.toSet().size)
-        assertEquals("UI_EINK_DU_PART_MODE", MusnapPenMapping.updateModeConstant(EInkRefreshMode.SPEED))
+        assertEquals("UI_EINK_DU_PART_MODE", IReaderPenMapping.updateModeConstant(EInkRefreshMode.SPEED))
         // UI_EINK_GC16_PART_MODE has the same value as UI_DEFAULT_MODE on device, so QUALITY must not use it.
-        assertEquals("UI_EINK_GC16_FULL_MODE", MusnapPenMapping.updateModeConstant(EInkRefreshMode.QUALITY))
+        assertEquals("UI_EINK_GC16_FULL_MODE", IReaderPenMapping.updateModeConstant(EInkRefreshMode.QUALITY))
     }
 }
