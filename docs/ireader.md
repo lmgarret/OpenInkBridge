@@ -181,6 +181,22 @@ Turning the fast path off while the pen hovers over a region (`disableAutoHandWr
 but the first hover point after the pen comes into range is reported at the screen's bottom-left
 corner, and the clip needs no timing.
 
+## Hardware capabilities
+
+`OpenInkBridgeDevice.hardwareCapabilities` (OIP §7.1) reports, on this firmware:
+
+* `device.firmware = "ireader"` and `display.technology = "eink"`, from the firmware's framework
+  classes (`android.eink.view.HWSurfaceView`). `device.manufacturer`, `brand` and `model` are the
+  rebranded build properties, as the system reports them.
+* `display.panelModel` from `ro.eink.screen.type` (e.g. `ED070KC4`), and `extras["ireader.platform"]`
+  from `ro.fota.oem` (e.g. `zhangyue_MTK8781_14.0`), read through the hidden `SystemProperties`.
+* `display.color` from the device table, by panel model: the firmware has no call saying whether
+  the panel shows colour (its colour filters and colour dither modes exist on monochrome panels too).
+  An unlisted panel reports `null`.
+* `liveInk.colors` as `fixed`, with every `HandPenConfig.PEN_COLOR_*` constant: black, grey
+  (`#505050`) and white on this firmware. A firmware with more pen colours reports them without
+  changes to the adapter.
+
 ## Refresh modes
 
 | OIP refresh mode | Firmware constant (`android.eink.api.EinkMode`) |
@@ -236,6 +252,7 @@ twelve.
 | Overlay surface | `android.eink.view.HWSurfaceView(Context)`, `getFBSurface()` |
 | Pen fast path | `IFBHandSurface.setAhwToolTypes`, `setAhwPen`, `setAutoHandWrite` |
 | Excluded regions | `IFBHandSurface.setClip(Path)` |
+| Hardware capabilities | `HandPenConfig.PEN_COLOR_*`; system properties `ro.eink.screen.type`, `ro.fota.oem` |
 | Stroke points | `IFBHandSurface.setAhwTouchListenerV2` / `setAhwTouchListener` |
 | Committed strokes | `android.eink.view.HandPen(int, boolean)`, `setCanvasBoard`, `onTouchEventV2(HandPoint)`, `draw` |
 | Panel eraser | `android.eink.view.HWEraser(IFBHandSurface, SurfacePicture, FBPicture)`, `setRadius`, `setStyle(STYLE_QUICK)`, `onTouchEvent(int, int, int)`; `HWEraserView.SurfacePicture.bindColor`, `HWEraserView.FBPicture.bindBitmap`/`bindColor`, `setViewLocation` |

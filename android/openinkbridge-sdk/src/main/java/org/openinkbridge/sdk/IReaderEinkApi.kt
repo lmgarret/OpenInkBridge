@@ -52,6 +52,19 @@ internal class IReaderEinkApi private constructor(
     fun penType(constantName: String): Int? =
         runCatching { penConfig.getField(constantName).getInt(null) }.getOrNull()
 
+    /**
+     * The colours the firmware pen can ink: every `HandPenConfig.PEN_COLOR_*` constant, which are
+     * ARGB values (black, grey and white on monochrome firmware).
+     */
+    val penColors: List<Int> by lazy {
+        penConfig.fields
+            .filter { it.name.startsWith("PEN_COLOR_") && it.type == Int::class.javaPrimitiveType && java.lang.reflect.Modifier.isStatic(it.modifiers) }
+            .mapNotNull { runCatching { it.getInt(null) }.getOrNull() }
+            .distinct()
+            // Dark to light, whatever order reflection lists the fields in.
+            .sortedBy { color -> (color shr 16 and 0xFF) * 299 + (color shr 8 and 0xFF) * 587 + (color and 0xFF) * 114 }
+    }
+
     /** Draws [points] with the firmware pen [type] into a software-backed [canvas]. */
     fun renderStroke(canvas: Canvas, type: Int, widthPx: Float, color: Int, points: List<PenPoint>): Boolean {
         val r = renderer ?: return false
@@ -335,4 +348,27 @@ internal class IReaderEinkApi private constructor(
             )
         }
     }
+}
+
+/**
+ * iReader firmware, recognised by its framework's pen classes (devices on it report rebranded
+ * build properties). Its system properties name the panel and the ZhangYue platform; whether the
+ * panel shows colour comes from the device table.
+ */
+internal object IReaderDeviceProbe {
+    fun probe(@Suppress("UNUSED_PARAMETER") build: BuildFacts): VendorFacts? {
+        runCatching { Class.forName("android.eink.view.HWSurfaceView") }.getOrNull() ?: return null
+        val platform = systemProperty("ro.fota.oem")
+        return VendorFacts(
+            firmware = "ireader",
+            technology = DisplayTechnology.EINK,
+            panelModel = systemProperty("ro.eink.screen.type"),
+            extras = if (platform != null) mapOf("ireader.platform" to platform) else emptyMap()
+        )
+    }
+
+    @SuppressLint("PrivateApi")
+    private fun systemProperty(name: String): String? = runCatching {
+        Class.forName("android.os.SystemProperties").getMethod("get", String::class.java).invoke(null, name) as String
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 }

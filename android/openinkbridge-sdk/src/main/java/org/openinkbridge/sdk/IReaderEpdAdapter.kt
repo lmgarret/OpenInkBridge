@@ -40,6 +40,7 @@ import android.widget.FrameLayout
  */
 @SuppressLint("ClickableViewAccessibility")
 class IReaderEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
+    override val backendId: String = "ireader"
     private var api: IReaderEinkApi? = null
     private var hostView: View? = null
     private var overlay: SurfaceView? = null
@@ -104,7 +105,8 @@ class IReaderEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         rawDrawingToggle = true,
         hardwareScribbleHandoff = true,
         vendorStrokeRendering = api?.canRenderStrokes == true,
-        panelErase = true
+        panelErase = true,
+        liveInkColors = api?.penColors?.takeIf { it.isNotEmpty() }?.let(LiveInkColors::Fixed)
     )
 
     /**
