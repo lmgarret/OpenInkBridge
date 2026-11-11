@@ -32,6 +32,10 @@ internal data class StrokeDrawnCommand(
     override val route: BridgeSessionRoute
 ) : BridgeCommand
 
+internal data class GetHardwareCapabilitiesCommand(
+    override val route: BridgeSessionRoute
+) : BridgeCommand
+
 internal object BridgeProtocol {
     const val VERSION = 1
     const val MAX_MESSAGE_LENGTH = 1_000_000
@@ -56,6 +60,7 @@ internal object BridgeProtocol {
                 rect = value.optJSONObject("rect")?.toBridgeRect()
             )
             "strokeDrawn" -> StrokeDrawnCommand(route)
+            "getHardwareCapabilities" -> GetHardwareCapabilitiesCommand(route)
             else -> null
         }
     }
@@ -66,6 +71,14 @@ internal object BridgeProtocol {
         put("sessionId", route.sessionId)
         put("canvasId", route.canvasId)
         put("payload", JSONObject().put("points", points))
+    }.toString()
+
+    fun hardwareCapabilities(route: BridgeSessionRoute, capabilities: JSONObject): String = JSONObject().apply {
+        put("protocolVersion", VERSION)
+        put("type", "hardwareCapabilities")
+        put("sessionId", route.sessionId)
+        put("canvasId", route.canvasId)
+        put("payload", capabilities)
     }.toString()
 
     private fun JSONObject.readIdentifier(name: String): String? {

@@ -420,6 +420,10 @@ class OpenInkBridgeView @JvmOverloads constructor(
     private fun outsideExcludedRegions(stroke: List<PenPoint>): List<List<PenPoint>> =
         ExcludedRegions.split(stroke, excludedBoxes)
 
+    /** The device's hardware and what this view's backend does with it (OIP §7.1). */
+    fun hardwareCapabilities(): HardwareCapabilities =
+        OpenInkBridgeDevice.hardwareCapabilities(context, epdAdapterManager.activeAdapter.takeIf { epdAdapterManager.isBound })
+
     fun setStylusOnly(enabled: Boolean) {
         this.stylusOnly = enabled
         epdAdapterManager.activeAdapter.setStylusOnly(enabled)

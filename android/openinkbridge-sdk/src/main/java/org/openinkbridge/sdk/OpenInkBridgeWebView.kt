@@ -343,6 +343,14 @@ class OpenInkBridgeWebView @JvmOverloads constructor(
                 }
             }
             is StrokeDrawnCommand -> epdAdapterManager.activeAdapter.clearHardwareScribble()
+            is GetHardwareCapabilitiesCommand -> {
+                val capabilities = OpenInkBridgeDevice.hardwareCapabilities(context, epdAdapterManager.activeAdapter)
+                val envelope = JSONObject.quote(BridgeProtocol.hardwareCapabilities(command.route, capabilities.toJsonObject()))
+                platformWebView.evaluateJavascript(
+                    "if (window.onOpenInkBridgeHardwareCapabilities) { window.onOpenInkBridgeHardwareCapabilities($envelope); }",
+                    null
+                )
+            }
         }
     }
 

@@ -27,5 +27,34 @@
         { "x": 1, "y": 2, "pressure": 0.5, "tilt": 0, "timestamp": 42 }
       ]
     }
+  },
+  "getHardwareCapabilities": {
+    "protocolVersion": 1,
+    "type": "getHardwareCapabilities",
+    "sessionId": "session-contract",
+    "canvasId": "canvas-contract"
+  },
+  "hardwareCapabilities": {
+    "protocolVersion": 1,
+    "type": "hardwareCapabilities",
+    "sessionId": "session-contract",
+    "canvasId": "canvas-contract",
+    "payload": {
+      "schemaVersion": 2,
+      "device": {
+        "manufacturer": null, "brand": null, "model": null, "runtime": "android",
+        "firmware": { "value": null, "source": "none" }
+      },
+      "display": {
+        "technology": { "value": null, "source": "none" },
+        "color": { "value": null, "source": "none" },
+        "panelModel": null, "widthPx": null, "heightPx": null, "ppi": null
+      },
+      "digitizer": { "stylus": null, "pressure": null, "tilt": null, "hover": null, "eraser": null },
+      "backend": null,
+      "epdc": { "refreshModes": [], "fullRefresh": false },
+      "liveInk": null,
+      "extras": {}
+    }
   }
 }

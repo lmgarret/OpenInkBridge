@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "description": "Known devices whose system reports too little about their display. Each entry matches when every key of `match` equals the device's value (case-insensitive); a field takes its value from the first matching entry that sets it. Vendor-reported values take precedence over this table.",
+  "devices": [
+    {
+      "match": { "manufacturer": "ONYX" },
+      "firmware": "onyx",
+      "technology": "eink"
+    },
+    {
+      "match": { "manufacturer": "Bigme" },
+      "firmware": "bigme",
+      "technology": "eink"
+    }
+  ]
+}
