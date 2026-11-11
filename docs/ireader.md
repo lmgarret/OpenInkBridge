@@ -1,9 +1,10 @@
-# Musnap Integration Guide
+# iReader Integration Guide
 
-Musnap e-ink tablets (e.g. the Musnap Ocean) run iReader / ZhangYue firmware on Android 14. The
-firmware adds an `android.eink` package to the device framework with a system pen fast path —
+E-ink tablets on iReader / ZhangYue firmware run Android 14: the Musnap Ocean, and rebranded MT8781
+tablets that report other brands in their build properties (e.g. Byybuo / Chitech TAB-Executive).
+The firmware adds an `android.eink` package to the device framework with a system pen fast path —
 "auto handwriting" — that inks the stylus straight to the EPDC while the pen moves and reports the
-points back to the app. `MusnapEpdAdapter` drives it. It needs no dependency: everything is
+points back to the app. `IReaderEpdAdapter` drives it. It needs no dependency: everything is
 resolved by reflection, and the probe fails fast on any other device.
 
 ## Status
@@ -39,7 +40,7 @@ drawn over the canvas from being inked through (not yet verified on device).
 
 Do not toggle `setRawDrawingEnabled` on every `ACTION_DOWN`, as Onyx hosts do. The firmware starts
 inking before the app sees a touch, so a stroke that re-enables inking on its own `ACTION_DOWN`
-gets no live ink. Musnap does not need the toggle — it only inks inside the overlay — and reports
+gets no live ink. This firmware does not need the toggle — it only inks inside the overlay — and reports
 `rawDrawingTouchHandoff = false`; `OpenInkBridgeView.needsRawDrawingTouchHandoff` tells a host
 whether to toggle. WebView hosts are handled inside the adapter: there, inking follows whether the
 page's canvas overlay is visible.
@@ -62,7 +63,7 @@ the app stays in front.
 ## Pens: the committed stroke is the preview
 
 The live ink and the committed stroke are drawn by the same engine. The firmware's `HandPen` renders
-into any software-backed `Canvas`, so `MusnapEpdAdapter.renderStroke` draws committed strokes with
+into any software-backed `Canvas`, so `IReaderEpdAdapter.renderStroke` draws committed strokes with
 it (`vendorStrokeRendering` capability), and `OpenInkBridgeView` keeps them in a bitmap layer built
 that way. The view commits the raw points: smoothing them would move the stroke at pen-up.
 
@@ -240,14 +241,15 @@ twelve.
 | Panel eraser | `android.eink.view.HWEraser(IFBHandSurface, SurfacePicture, FBPicture)`, `setRadius`, `setStyle(STYLE_QUICK)`, `onTouchEvent(int, int, int)`; `HWEraserView.SurfacePicture.bindColor`, `HWEraserView.FBPicture.bindBitmap`/`bindColor`, `setViewLocation` |
 | Refresh | `android.eink.api.ViewAPI.setUpdateMode`, `EinkAPI.applyFullScreenRefresh` |
 
-The same firmware may ship on other iReader-based devices. The adapter selects itself wherever the
-API probes successfully, regardless of brand: Musnap devices report rebranded build properties.
+The adapter selects itself wherever the firmware API probes successfully, regardless of brand:
+devices on this firmware report rebranded build properties (`ro.fota.oem` names the ZhangYue
+platform, e.g. `zhangyue_MTK8781_14.0`).
 
 ## Limitations
 
 * The gesture strips are wide: on a Musnap Ocean (1264×1680) they are 136px along the left and
-  right edges and across the whole bottom edge. On Musnap, run the sample through its
-  "OpenInkBridge Sample (Musnap)" launcher entry (`MusnapSampleActivityNote`); in the regular
+  right edges and across the whole bottom edge. On these devices, run the sample through its
+  "OpenInkBridge Sample (iReader)" launcher entry (`IReaderSampleActivityNote`); in the regular
   entry, strokes in those strips trigger system gestures.
 * WebView strokes change slightly at pen-up (see "Pens").
 * An Android process that crashes or is killed repeatedly gets flagged "bad", after which the

@@ -414,7 +414,7 @@ For Linux-based devices (such as reMarkable 1/2), the daemon processes Linux inp
 
 OIP abstracts underlying vendor-specific waveform modes into standard semantics:
 
-| OIP Mode | Onyx Equivalent | Musnap (iReader `EinkMode`) | reMarkable / Linux | Semantics |
+| OIP Mode | Onyx Equivalent | iReader (`EinkMode`) | reMarkable / Linux | Semantics |
 | :--- | :--- | :--- | :--- | :--- |
 | **`FAST` / `SPEED`** | `DU` / `A2` | `UI_EINK_DU_PART_MODE` | Fast monochrome direct | Lowest latency (<15ms), 1-bit or 2-bit preview, minimal contrast. |
 | **`PARTIAL`** | `REGAL` / `GU` | `UI_DEFAULT_MODE` (partial GC16) | Rectangular partial update | High quality update localized to the stroke's bounding box rectangle. |

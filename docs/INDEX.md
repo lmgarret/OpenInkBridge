@@ -10,7 +10,7 @@ Below are the detailed integration guides:
 * **[Developer Diagnostics & Logging Guide](./DEVELOPER_DIAGNOSTICS.md)**: Structured logging system, log levels, categories, in-memory ring buffer, diagnostics collection, configuration dumping, and bug report generation.
 * **[Web & WebApp Integration Guide](./WEB_INTEGRATION.md)**: Integrating `openinkbridge-web` inside HTML5 Canvas, React components, and handling browser pointer fallbacks.
 * **[Android SDK Integration Guide](./ANDROID_INTEGRATION.md)**: Adding `OpenInkBridgeView` and `OpenInkBridgeWebView`, opting into BOOX acceleration, handling lifecycle, and optionally generating JNI artifacts.
-* **[Musnap Integration Guide](./musnap.md)**: How the Musnap (iReader firmware) backend drives the firmware pen fast path through a transparent overlay, and what it maps refresh modes to.
+* **[iReader Integration Guide](./ireader.md)**: How the iReader firmware backend (Musnap and rebranded tablets) drives the firmware pen fast path through a transparent overlay, and what it maps refresh modes to.
 * **[reMarkable Integration Guide](./remarkable.md)**: Experimental reMarkable 1/2 backend design and `armv7-unknown-linux-gnueabihf` build instructions. Paper Pro support is planned but unvalidated.
 * **[Linux Native Client Integration Guide](./LINUX_INTEGRATION.md)**: Understanding the experimental reMarkable backend's nonblocking evdev input and framebuffer rendering pipeline. Kobo support is planned.
 

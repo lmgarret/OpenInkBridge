@@ -19,12 +19,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Same screen under a name Musnap firmware recognises as a handwriting app, which keeps its
-             edge-swipe gestures from taking stylus strokes (see docs/musnap.md). -->
+        <!-- Same screen under a name the iReader firmware recognises as a handwriting app, which keeps its
+             edge-swipe gestures from taking stylus strokes (see docs/ireader.md). -->
         <activity
-            android:name=".MusnapSampleActivityNote"
+            android:name=".IReaderSampleActivityNote"
             android:exported="true"
-            android:label="OpenInkBridge Sample (Musnap)"
+            android:label="OpenInkBridge Sample (iReader)"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

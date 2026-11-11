@@ -163,7 +163,7 @@ object OpenInkBridgeDiagnostics {
             capabilities = CapabilitiesReport(
                 pressure = true,
                 tilt = Build.MANUFACTURER.lowercase().contains("onyx") ||
-                    backendName == MusnapEpdAdapter::class.java.simpleName,
+                    backendName == IReaderEpdAdapter::class.java.simpleName,
                 hover = true,
                 eraser = true,
                 refreshModes = if (adapterStatus.capabilities.refreshModeControl) {
