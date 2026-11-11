@@ -50,7 +50,7 @@ OpenInkBridge implements the **[OpenInk Protocol (OIP) Specification v0.2](./spe
 
 ## Features & Highlights
 
-* **Capability-Probed Rendering:** Onyx Boox Pen SDK acceleration where available, Android MotionEvent prediction or Canvas fallback elsewhere, and explicit degraded-mode diagnostics.
+* **Capability-Probed Rendering:** Onyx Boox Pen SDK and iReader firmware pen acceleration where available, Android MotionEvent prediction or Canvas fallback elsewhere, and explicit degraded-mode diagnostics.
 * **Hybrid Touch Routing & Focus Handoff:** Seamlessly toggles hardware raw drawing scribbles when drawing inside low-latency regions, while instantly yielding display refresh control for standard/traditional views and UI components.
 * **Vector Path & Style Persistence:** Supports per-stroke color, width, and pressure-aware vector rendering with export options to Bitmap and SVG.
 * **Consistent Stroke Smoothing:** Rust, JavaScript, and Kotlin use the same zero-phase `0.25 / 0.50 / 0.25` smoothing contract. Ramer-Douglas-Peucker simplification is a separate, opt-in Rust API and is not part of the Wasm or JNI smoothing surface.
@@ -60,6 +60,7 @@ OpenInkBridge implements the **[OpenInk Protocol (OIP) Specification v0.2](./spe
 | Platform | Status | Rendering path |
 | --- | --- | --- |
 | Onyx BOOX (Android) | Implemented, optional acceleration | Onyx Pen SDK when the app supplies the optional runtime; Android fallback otherwise |
+| iReader firmware (Android; Musnap and rebranded tablets) | Implemented | Firmware pen fast path (`android.eink`) through a transparent `HWSurfaceView` overlay; native views commit strokes with the same firmware pen. No dependency needed |
 | Generic Android | Implemented | MotionEvent prediction / Canvas fallback |
 | Bigme and Supernote | Software fallback only | Generic Android path; vendor acceleration is not implemented |
 | reMarkable 1/2 | Experimental hardware backend | Linux evdev and framebuffer |
@@ -101,7 +102,7 @@ OpenInkBridge is licensed under the **[Apache License, Version 2.0](./LICENSE)**
 
 ## Trademark Disclaimer
 
-All product names, logos, brands, trademarks, and registered trademarks mentioned in this repository (including *reMarkable*, *Onyx Boox*, *Bigme*, *Supernote*, *Kobo*, and *E Ink*) are the property of their respective owners. 
+All product names, logos, brands, trademarks, and registered trademarks mentioned in this repository (including *reMarkable*, *Onyx Boox*, *Musnap*, *iReader*, *Bigme*, *Supernote*, *Kobo*, and *E Ink*) are the property of their respective owners. 
 
 All company, product, and service names used in this project are for identification and hardware compatibility reference purposes only. Use of these names, logos, and brands does not imply endorsement, affiliation, sponsorship, or certification by their respective owners. OpenInkBridge is an independent open-source software project.
 

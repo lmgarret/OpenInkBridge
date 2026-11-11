@@ -33,6 +33,7 @@ const model = require('../dist/model.js');
 const bridgeModule = require('../dist/bridge.js');
 const canvasModule = require('../dist/canvas.js');
 const diagnostics = require('../dist/diagnostics.js');
+const capabilities = require('../dist/capabilities.js');
 const packageMetadata = require('../package.json');
 
 function point(x, y, pressure = 0.5, tilt = 0, timestamp = 1) {
@@ -119,6 +120,20 @@ test('JavaScript smoothing matches the shared protocol-v1 golden vectors', () =>
     for (const vector of fixture.vectors) {
         assert.deepEqual(model.smoothStrokeJs(vector.input), vector.expected, vector.name);
     }
+});
+
+test('stroke points carry barrel buttons through parsing, cloning and smoothing', () => {
+    const { PRIMARY, SECONDARY } = model.PenButtons;
+    const points = [point(0, 0), { ...point(1, 1, 0.5, 0, 2), buttons: PRIMARY }, point(2, 2, 0.5, 0, 3)];
+
+    assert.deepEqual(bridgeModule.parseNativeStrokePayload(JSON.stringify(points)).points, points);
+    assert.deepEqual(model.smoothStrokeJs(points).map(p => p.buttons), [undefined, PRIMARY, undefined]);
+    assert.equal(model.cloneStrokePoint({ ...point(0, 0), buttons: SECONDARY }).buttons, SECONDARY);
+    assert.equal('buttons' in model.cloneStrokePoint(point(0, 0)), false);
+
+    assert.equal(model.isValidStrokePoint({ ...point(0, 0), buttons: 1.5 }), false);
+    assert.equal(model.isValidStrokePoint({ ...point(0, 0), buttons: -1 }), false);
+    assert.equal(model.isValidStrokePoint({ ...point(0, 0), buttons: 'primary' }), false);
 });
 
 test('native payload parser accepts legacy and scoped v1 messages and rejects malformed data', () => {
@@ -288,4 +303,93 @@ test('canvas stores per-stroke style, isolates copies, sanitizes SVG, and cleans
 
 test('diagnostics version is derived from package.json', () => {
     assert.equal(diagnostics.collectDiagnostics(undefined, true).version, packageMetadata.version);
+});
+
+const capabilityContract = JSON.parse(fs.readFileSync(
+    path.resolve(__dirname, '..', '..', 'contracts', 'hardware-capabilities-v2.json'), 'utf8'
+));
+
+test('hardware capabilities parser keeps the shared contract documents intact', () => {
+    for (const [name, document] of Object.entries(capabilityContract.documents)) {
+        assert.deepEqual(capabilities.parseHardwareCapabilities(document), document, name);
+        assert.deepEqual(capabilities.parseHardwareCapabilities(JSON.stringify(document)), document, name);
+    }
+});
+
+test('hardware capabilities parser rejects other schemas and drops malformed values', () => {
+    const document = structuredClone(capabilityContract.documents.ireaderTablet);
+    assert.equal(capabilities.parseHardwareCapabilities({ ...document, schemaVersion: 1 }), null);
+    assert.equal(capabilities.parseHardwareCapabilities({ ...document, device: { ...document.device, runtime: 'ios' } }), null);
+    assert.equal(capabilities.parseHardwareCapabilities('{broken'), null);
+
+    document.display.technology = { value: null, source: 'vendor' };
+    document.display.color = { value: 'sepia', source: 'vendor' };
+    document.display.widthPx = -3;
+    document.digitizer.stylus = 'yes';
+    document.epdc.refreshModes = ['SPEED', 'WARP'];
+    document.liveInk.colors = { kind: 'fixed', values: ['#000000', 'red', '#12345'] };
+    document.extras = { 'ireader.platform': 'x', badKey: 1, 'vendor.object': { nested: true } };
+    document.unknownField = 42;
+
+    const parsed = capabilities.parseHardwareCapabilities(document);
+    assert.deepEqual(parsed.display.technology, { value: null, source: 'none' });
+    assert.deepEqual(parsed.display.color, { value: null, source: 'none' });
+    assert.equal(parsed.display.widthPx, null);
+    assert.equal(parsed.digitizer.stylus, null);
+    assert.deepEqual(parsed.epdc.refreshModes, ['SPEED']);
+    assert.deepEqual(parsed.liveInk.colors, { kind: 'fixed', values: ['#000000'] });
+    assert.deepEqual(parsed.extras, { 'ireader.platform': 'x' });
+    assert.equal('unknownField' in parsed, false);
+});
+
+test('browser detection reports unknown values and only heuristic e-ink signals', () => {
+    const savedMatchMedia = window.matchMedia;
+    window.matchMedia = () => ({ matches: false });
+    assert.deepEqual(capabilities.detectBrowserCapabilities(), capabilityContract.documents.unknownDevice);
+
+    window.matchMedia = query => ({ matches: query === '(update: slow)' || query === '(monochrome)' });
+    const detected = capabilities.detectBrowserCapabilities();
+    assert.deepEqual(detected.display.technology, { value: 'eink', source: 'heuristic' });
+    assert.deepEqual(detected.display.color, { value: 'monochrome', source: 'heuristic' });
+    window.matchMedia = savedMatchMedia;
+});
+
+test('getHardwareCapabilities asks the native bridge and routes its reply', async () => {
+    const savedNative = window.OpenInkBridgeNative;
+    const messages = [];
+    window.OpenInkBridgeNative = { postMessage(message) { messages.push(JSON.parse(message)); } };
+    const bridge = new bridgeModule.OpenInkBridge();
+
+    const pending = bridge.getHardwareCapabilities({ timeoutMs: 5000 });
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].type, 'getHardwareCapabilities');
+    assert.equal(messages[0].protocolVersion, 1);
+
+    const reply = {
+        protocolVersion: 1,
+        type: 'hardwareCapabilities',
+        sessionId: messages[0].sessionId,
+        canvasId: messages[0].canvasId,
+        payload: capabilityContract.documents.ireaderTablet
+    };
+    window.onOpenInkBridgeHardwareCapabilities({ ...reply, sessionId: 'someone-else' });
+    window.onOpenInkBridgeHardwareCapabilities(JSON.stringify(reply));
+    assert.deepEqual(await pending, capabilityContract.documents.ireaderTablet);
+
+    bridge.destroy();
+    window.OpenInkBridgeNative = savedNative;
+});
+
+test('getHardwareCapabilities falls back to browser detection without an answer', async () => {
+    const savedNative = window.OpenInkBridgeNative;
+    window.OpenInkBridgeNative = { postMessage() {} };
+    const bridge = new bridgeModule.OpenInkBridge();
+    const silent = await bridge.getHardwareCapabilities({ timeoutMs: 1 });
+    assert.equal(silent.device.runtime, 'web');
+    assert.equal(silent.backend, null);
+
+    delete window.OpenInkBridgeNative;
+    assert.equal((await bridge.getHardwareCapabilities()).device.runtime, 'web');
+    bridge.destroy();
+    window.OpenInkBridgeNative = savedNative;
 });

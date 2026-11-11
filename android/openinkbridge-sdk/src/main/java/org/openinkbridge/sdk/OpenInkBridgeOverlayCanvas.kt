@@ -108,7 +108,8 @@ class OpenInkBridgeOverlayCanvas(
             y = clampedY,
             pressure = event.pressure,
             tilt = event.getAxisValue(MotionEvent.AXIS_TILT),
-            timestamp = event.eventTime
+            timestamp = event.eventTime,
+            buttons = PenButtons.fromAndroidButtonState(event.buttonState)
         )
 
         when (event.action) {
@@ -135,7 +136,8 @@ class OpenInkBridgeOverlayCanvas(
                             y = histY,
                             pressure = event.getHistoricalPressure(0, i),
                             tilt = event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, 0, i),
-                            timestamp = event.getHistoricalEventTime(i)
+                            timestamp = event.getHistoricalEventTime(i),
+                            buttons = PenButtons.fromAndroidButtonState(event.buttonState)
                         )
                         strokePoints.add(histPoint)
                         epdAdapterManager.activeAdapter.drawPoint(histPoint)

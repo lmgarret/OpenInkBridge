@@ -29,6 +29,8 @@ android {
     }
 
     sourceSets {
+        // The shared device table ships with the SDK (OIP §7.1); the other contracts are test fixtures.
+        main.resources.srcDir "$rootDir/../contracts/device-table"
         test.resources.srcDir "$rootDir/../contracts"
     }
 
@@ -39,6 +41,10 @@ android {
 
     kotlinOptions {
         jvmTarget = '17'
+    }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
     }
 }
 
@@ -60,6 +66,7 @@ dependencies {
 
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.json:json:20240303"
+    testImplementation "org.robolectric:robolectric:4.11.1"
 }
 
 task inspectOnyxClasses {

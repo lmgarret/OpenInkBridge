@@ -44,7 +44,11 @@ object CoreBridge {
                 val startTime = System.currentTimeMillis()
                 val jsonInput = strokePointsToJson(points)
                 val jsonOutput = smoothStroke(jsonInput)
-                val result = jsonToStrokePoints(jsonOutput)
+                // The Rust core has no button field; smoothing keeps each point's own, like timestamps.
+                val result = jsonToStrokePoints(jsonOutput).let { smoothed ->
+                    check(smoothed.size == points.size) { "Native smoothing changed the point count" }
+                    smoothed.mapIndexed { index, point -> point.copy(buttons = points[index].buttons) }
+                }
                 val duration = System.currentTimeMillis() - startTime
                 OpenInkBridgeLogger.d(
                     Subsystem.Performance,

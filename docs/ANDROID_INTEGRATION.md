@@ -38,6 +38,7 @@ Inside your Activity or Fragment:
 
 ```kotlin
 import org.openinkbridge.sdk.OpenInkBridgeView
+import org.openinkbridge.sdk.StylusTool
 import android.graphics.Color
 
 class SketchActivity : AppCompatActivity() {
@@ -50,6 +51,10 @@ class SketchActivity : AppCompatActivity() {
         // Configure brush style
         drawingCanvas.setBrushStyle(Color.BLACK, 5.0f)
 
+        // Pick the pen. Backends with their own pen engine (iReader) use the matching vendor pen
+        // for both the live preview and the committed stroke.
+        drawingCanvas.setStylusTool(StylusTool.PEN)
+
         // Capture finalized vector strokes
         drawingCanvas.setOnStrokeListener { points ->
             Log.d("Sketch", "Drew stroke with ${points.size} coordinates.")
@@ -57,6 +62,97 @@ class SketchActivity : AppCompatActivity() {
     }
 }
 ```
+
+To restore a saved drawing, or redraw it without some strokes, assign `strokes`. Each stroke is
+drawn with its own pen, colour and width, and the stroke listener is not called; assigning an empty
+list is `clear()`:
+
+```kotlin
+val saved: List<DrawingStroke> = drawingCanvas.strokes
+drawingCanvas.strokes = saved.filterNot { it in erased }
+```
+
+`addCompletedStroke(points, tool, color, width, notify = true)` commits one stroke as if the user
+had drawn it; pass `notify = false` to keep it from the listener.
+
+`triggerFullRefresh()` runs a full-panel refresh to clear ghosting, on backends that support it.
+
+View updates that can wait (marks, highlights, status text) belong in `runWhenPenIdle`. It runs
+them once the pen has been idle for `penIdleDelayMs` (2 s by default) or has left hover range, and
+at once if it already is. On iReader firmware, updating a view while the user writes delays the ink of
+the next stroke (see the [iReader guide](./ireader.md#keep-the-screen-still-while-the-user-writes)):
+
+```kotlin
+drawingCanvas.setOnStrokeListener { points ->
+    val cell = cellOf(points)
+    drawingCanvas.runWhenPenIdle { grid.markFilled(cell) }
+}
+```
+
+### Stylus barrel buttons
+
+Every `PenPoint` carries the barrel buttons held at it as a `PenButtons` bitmask (`PRIMARY`,
+`SECONDARY`), the same on every backend. The bridge only reports them; what a button does is up to
+the app. To use one as a tool, pause the low-latency ink while it is held:
+
+```kotlin
+drawingCanvas.setOnStylusButtonListener { buttons ->
+    drawingCanvas.setInkingPaused(buttons and PenButtons.PRIMARY != 0)
+}
+drawingCanvas.setOnStrokeListener { points ->
+    if (points.any { it.buttons and PenButtons.PRIMARY != 0 }) selectAlong(points) // or erase, …
+}
+```
+
+While paused, strokes are reported to the stroke listener but neither inked nor added to the
+canvas, and whatever the vendor path had already inked is cleared. A stroke keeps the mode it
+started in. The listener fires as soon as the platform reports a change, so pausing from it applies
+to the stroke that reported it. Some pens report their button only while the tip is down.
+
+### Erasing
+
+Select `StylusTool.ERASER_POINT` to cut what the stylus crosses out of the strokes, or
+`StylusTool.ERASER_STROKE` to remove whole strokes; the stylus's eraser end always does the latter.
+Selecting an eraser takes effect at once, even mid-stroke, so a barrel button can hold it; leaving
+it takes effect once the erasing stroke ends. Erasing strokes are not reported to the stroke
+listener; what they changed goes to the erase listener.
+
+```kotlin
+drawingCanvas.eraserRadiusPx = 12f * resources.displayMetrics.density
+drawingCanvas.setEraserBackground { canvas -> grid.draw(canvas) } // what lies under the strokes
+drawingCanvas.setOnStylusButtonListener { buttons ->
+    val held = buttons and PenButtons.PRIMARY != 0
+    drawingCanvas.setStylusTool(if (held) StylusTool.ERASER_POINT else StylusTool.PEN)
+}
+drawingCanvas.setOnStrokesErasedListener { change ->
+    document.replace(change.removed, change.added)
+}
+```
+
+On backends that erase on the panel (`EpdAdapterCapabilities.panelErase`, iReader), the erase shows
+at ink speed over the background and is applied to the strokes at pen-up; the background is drawn
+when an erase starts, and without one the erased area is white until the view redraws. Elsewhere
+the strokes are cut and redrawn as the stylus moves.
+
+### Excluded regions
+
+Areas of the view that take taps rather than writing (buttons, cells) can be kept out of the
+low-latency ink, in the view's own pixels:
+
+```kotlin
+drawingCanvas.setExcludedRegions(listOf(RectF(0f, 0f, 200f, 80f)))
+```
+
+The pen still reaches the view there as ordinary touch events. The regions are kept and re-applied
+whenever the backend binds again.
+
+On every backend, strokes committed from then on are cut where they cross a region: the parts
+inside are dropped, each piece outside is committed and reported to the stroke listener on its
+own, and a stroke drawn entirely inside one is not committed at all.
+
+Live ink stays out of the regions on backends that support it: Onyx (as `TouchHelper.setLimitRect`'s
+exclude list) and iReader (as the firmware pen's clip, see [ireader.md](ireader.md)). Others ink
+everywhere while the pen moves, and the cut applies at pen-up.
 
 ---
 
@@ -107,10 +203,39 @@ dependencies {
 }
 ```
 
+iReader-firmware tablets (e.g. Musnap) need no extra dependency: the firmware's pen API is part of
+the device framework and is resolved by reflection. See the [iReader Integration Guide](./ireader.md).
+
 `EpdAdapterManager` probes ordered candidates and keeps only an adapter that initializes
 successfully. On BOOX hardware, the Onyx adapter is eligible only when the application supplies the
 matching runtime dependency. Missing classes, probe failures, and initialization errors are reported
 and fall through to Jetpack motion prediction or the Canvas adapter.
+
+### Hardware capabilities
+
+Apps that adapt to the device (e.g. hide colour pens on a monochrome panel) read its hardware
+capabilities, the OIP §7.1 document:
+
+```kotlin
+// The device alone, without a view: backend, epdc and liveInk are empty.
+val device = OpenInkBridgeDevice.hardwareCapabilities(context)
+if (device.display.color.value == PanelColor.MONOCHROME) hideColourPens()
+
+// The device and what the view's bound backend does with it.
+val liveInkColors = drawingCanvas.hardwareCapabilities().liveInk?.colors
+```
+
+Values that cannot be established are null. `display.technology`, `display.color` and
+`device.firmware` carry where they came from (`ValueSource`): a vendor SDK or firmware API, the
+shared device table ([`contracts/device-table/device-table-v1.json`](../contracts/device-table/device-table-v1.json)),
+or nothing. The digitizer comes from the input devices Android lists; whether the pen hovers or has
+an eraser end is only known once it is used, so those stay null. `extras` holds vendor-specific
+values (e.g. `onyx.colorType`), which may change between releases. `toJson()` gives the document as
+the protocol sends it; `OpenInkBridgeWebView` answers the Web SDK's `getHardwareCapabilities()`
+with it.
+
+On BOOX devices the panel's colour comes from the Onyx SDK (`Device.currentDevice().getColorType()`)
+when the vendor runtime is present; without it, only the device table applies.
 
 ---
 
@@ -135,6 +260,12 @@ To ensure non-direct drawing areas (such as traditional whiteboard canvases or n
 
 1. **`dispatchTouchEvent` Auto-Handoff:** `OpenInkBridgeWebView` automatically checks `ACTION_DOWN` coordinates. When a touch begins outside the low-latency canvas, hardware raw drawing is paused (`setRawDrawingEnabled(false)`), allowing normal Android view updates and EPD screen refreshes to proceed without lag.
 2. **Re-Enabling Direct Mode:** When a touch begins inside `OpenInkBridgeView` or `OpenInkBridgeOverlayCanvas`, direct hardware raw drawing is immediately re-enabled.
+
+Hosts that implement the same handoff for an `OpenInkBridgeView` themselves (toggling
+`setRawDrawingEnabled` on `ACTION_DOWN`) should do so only when
+`view.needsRawDrawingTouchHandoff` is true. Backends that ink only inside their own region (iReader)
+report false, and on them the toggle costs the live ink of the first stroke after any touch outside
+the view: the vendor starts inking before the app sees the touch.
 
 ---
 

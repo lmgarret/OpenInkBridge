@@ -1,10 +1,6 @@
 package org.openinkbridge.sample
 
-import android.content.Context
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
 import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
@@ -21,18 +17,18 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.updatePadding
 import org.openinkbridge.sdk.OpenInkBridgeView
+import org.openinkbridge.sdk.PenButtons
+import org.openinkbridge.sdk.StylusTool
 import org.openinkbridge.sdk.OpenInkBridgeWebView
-import org.openinkbridge.sdk.PenPoint
 import org.openinkbridge.sdk.OpenInkBridgeLogger
 import org.openinkbridge.sdk.LogLevel
 import org.openinkbridge.sdk.Subsystem
 import org.openinkbridge.sdk.OpenInkBridgeDiagnostics
 
-class MainActivity : AppCompatActivity() {
+open class MainActivity : AppCompatActivity() {
 
     private lateinit var container: FrameLayout
     private var nativeViewOpt: OpenInkBridgeView? = null
-    private var nativeViewTrad: TraditionalDrawingView? = null
     private var webView: OpenInkBridgeWebView? = null
     
     private var isWebViewMode = false
@@ -135,7 +131,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (ev.action == MotionEvent.ACTION_DOWN) {
-            nativeViewOpt?.let { optView ->
+            // Only backends whose raw drawing blocks updates elsewhere (Onyx) need this per-touch
+            // handoff; on others it would cost the live ink of the next stroke in the canvas.
+            nativeViewOpt?.takeIf { it.needsRawDrawingTouchHandoff }?.let { optView ->
                 val loc = IntArray(2)
                 optView.getLocationOnScreen(loc)
                 val rect = android.graphics.Rect(loc[0], loc[1], loc[0] + optView.width, loc[1] + optView.height)
@@ -250,7 +248,6 @@ class MainActivity : AppCompatActivity() {
 
         btnClear.setOnClickListener {
             nativeViewOpt?.clear()
-            nativeViewTrad?.clear()
             if (isWebViewMode) {
                 webView?.webView?.evaluateJavascript("if (window.onClearCanvas) { window.onClearCanvas(); }", null)
             }
@@ -297,13 +294,11 @@ class MainActivity : AppCompatActivity() {
     private fun updateColor(color: Int) {
         currentColor = color
         nativeViewOpt?.setBrushStyle(currentColor, currentWidth)
-        nativeViewTrad?.setBrushStyle(currentColor, currentWidth)
     }
 
     private fun updateWidth(width: Float) {
         currentWidth = width
         nativeViewOpt?.setBrushStyle(currentColor, currentWidth)
-        nativeViewTrad?.setBrushStyle(currentColor, currentWidth)
         if (isWebViewMode) {
             webView?.webView?.evaluateJavascript(
                 "if (window.setStrokeWidth) { window.setStrokeWidth($currentWidth); }",
@@ -316,22 +311,13 @@ class MainActivity : AppCompatActivity() {
         container.removeAllViews()
         webView = null
         
-        val horizontalLayout = LinearLayout(this).apply {
+        val panel = LinearLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-            orientation = LinearLayout.HORIZONTAL
-            weightSum = 2f
+            orientation = LinearLayout.VERTICAL
             setPadding(8, 8, 8, 8)
         }
-
-        // 1. Optimized Panel
-        val optPanel = LinearLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                rightMargin = 8
-            }
-            orientation = LinearLayout.VERTICAL
-        }
-        val optTitle = TextView(this).apply {
-            text = "Native Canvas (Low-Latency)"
+        val title = TextView(this).apply {
+            text = NATIVE_CANVAS_TITLE
             setTextColor(Color.parseColor("#28a745"))
             textSize = 14f
             gravity = Gravity.CENTER
@@ -340,40 +326,24 @@ class MainActivity : AppCompatActivity() {
         nativeViewOpt = OpenInkBridgeView(this).apply {
             setBrushStyle(currentColor, currentWidth)
             setStylusOnly(isStylusOnlyMode)
-        }
-        optPanel.addView(optTitle)
-        optPanel.addView(nativeViewOpt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
-
-        // 2. Traditional Panel
-        val tradPanel = LinearLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
-                leftMargin = 8
+            // Holding the barrel button erases.
+            setOnStylusButtonListener { buttons ->
+                setStylusTool(if (buttons and PenButtons.PRIMARY != 0) StylusTool.ERASER_POINT else StylusTool.PEN)
             }
-            orientation = LinearLayout.VERTICAL
+            setOnStrokesErasedListener { change ->
+                title.text = "Erased: ${change.removed.size} strokes, ${change.added.size} pieces left"
+            }
+            setOnStrokeListener { title.text = NATIVE_CANVAS_TITLE }
         }
-        val tradTitle = TextView(this).apply {
-            text = "Traditional Canvas (Standard)"
-            setTextColor(Color.parseColor("#dc3545"))
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setPadding(8, 8, 8, 8)
-        }
-        nativeViewTrad = TraditionalDrawingView(this).apply {
-            setBrushStyle(currentColor, currentWidth)
-        }
-        tradPanel.addView(tradTitle)
-        tradPanel.addView(nativeViewTrad, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
+        panel.addView(title)
+        panel.addView(nativeViewOpt, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
 
-        horizontalLayout.addView(optPanel)
-        horizontalLayout.addView(tradPanel)
-        
-        container.addView(horizontalLayout)
+        container.addView(panel)
     }
 
     private fun showWebViewCanvas() {
         container.removeAllViews()
         nativeViewOpt = null
-        nativeViewTrad = null
         
         webView = OpenInkBridgeWebView(this)
         container.addView(webView)
@@ -413,102 +383,8 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.e("OpenInkBridge", "Failed to inspect Onyx classes", e)
         }
     }
-}
 
-class TraditionalDrawingView(context: Context) : View(context) {
-    private var epdClass: Class<*>? = null
-    private var epdModeEnumClass: Class<*>? = null
-    private var refreshMethod: java.lang.reflect.Method? = null
-    private var duMode: Any? = null
-
-    init {
-        try {
-            epdClass = Class.forName("com.onyx.android.sdk.api.device.epd.EpdController")
-            epdModeEnumClass = Class.forName("com.onyx.android.sdk.api.device.epd.UpdateMode")
-            @Suppress("UNCHECKED_CAST")
-            duMode = java.lang.Enum.valueOf(epdModeEnumClass as Class<out Enum<*>>, "DU")
-            
-            val applyModeMethod = epdClass?.getMethod("setViewDefaultUpdateMode", View::class.java, epdModeEnumClass)
-            applyModeMethod?.invoke(null, this, duMode)
-            
-            refreshMethod = epdClass?.getMethod("refreshScreen", View::class.java, epdModeEnumClass)
-        } catch (e: Exception) {
-            android.util.Log.w("OpenInkBridge", "TraditionalDrawingView EpdController setup failed: ${e.message}")
-        }
-    }
-
-    private fun refreshEpd() {
-        try {
-            val applyModeMethod = epdClass?.getMethod("setViewDefaultUpdateMode", View::class.java, epdModeEnumClass)
-            applyModeMethod?.invoke(null, this, duMode)
-            refreshMethod?.invoke(null, this, duMode)
-        } catch (e: Exception) {}
-    }
-
-    private val strokes = mutableListOf<MutableList<PenPoint>>()
-    private var currentStroke = mutableListOf<PenPoint>()
-    private var baseWidth = 5f
-    private val paint = Paint().apply {
-        color = Color.RED
-        strokeWidth = 5f
-        style = Paint.Style.STROKE
-        strokeJoin = Paint.Join.ROUND
-        strokeCap = Paint.Cap.ROUND
-        isAntiAlias = true
-    }
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        val pt = PenPoint(
-            x = event.x,
-            y = event.y,
-            pressure = event.pressure,
-            tilt = event.getAxisValue(MotionEvent.AXIS_TILT),
-            timestamp = event.eventTime
-        )
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                currentStroke = mutableListOf()
-                currentStroke.add(pt)
-                strokes.add(currentStroke)
-            }
-            MotionEvent.ACTION_MOVE -> {
-                currentStroke.add(pt)
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                currentStroke.add(pt)
-            }
-        }
-        invalidate()
-        refreshEpd()
-        return true
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        for (stroke in strokes) {
-            if (stroke.size < 2) continue
-            for (i in 0 until stroke.size - 1) {
-                val p1 = stroke[i]
-                val p2 = stroke[i + 1]
-                val avgPressure = (p1.pressure + p2.pressure) / 2f
-                val width = baseWidth * (0.6f + 0.8f * avgPressure)
-                paint.strokeWidth = width
-                canvas.drawLine(p1.x, p1.y, p2.x, p2.y, paint)
-            }
-        }
-    }
-
-    fun clear() {
-        strokes.clear()
-        currentStroke.clear()
-        invalidate()
-        refreshEpd()
-    }
-    
-    fun setBrushStyle(color: Int, width: Float) {
-        paint.color = color
-        baseWidth = width
-        invalidate()
-        refreshEpd()
+    private companion object {
+        const val NATIVE_CANVAS_TITLE = "Native Canvas (Low-Latency) — hold the pen button to pause ink"
     }
 }

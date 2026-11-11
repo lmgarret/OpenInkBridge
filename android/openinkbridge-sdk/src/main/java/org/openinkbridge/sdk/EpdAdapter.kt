@@ -1,6 +1,9 @@
 package org.openinkbridge.sdk
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.PointF
+import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.View
 
@@ -12,7 +15,26 @@ data class EpdAdapterCapabilities(
     val fullRefresh: Boolean = false,
     val drawingLimit: Boolean = false,
     val rawDrawingToggle: Boolean = false,
-    val hardwareScribbleHandoff: Boolean = false
+    val hardwareScribbleHandoff: Boolean = false,
+    /**
+     * Raw drawing must be paused while touches land outside the drawing region, so hosts toggle
+     * [EpdAdapter.setRawDrawingEnabled] on every ACTION_DOWN (Onyx). Backends whose vendor path
+     * only inks inside its own region leave it false: toggling there costs the live ink of the
+     * first stroke after any outside touch, since the vendor starts inking before the app sees it.
+     */
+    val rawDrawingTouchHandoff: Boolean = false,
+    /**
+     * [EpdAdapter.renderStroke] draws committed strokes with the same vendor pen engine that inks
+     * the live preview, so a stroke looks identical before and after pen-up.
+     */
+    val vendorStrokeRendering: Boolean = false,
+    /** [EpdAdapter.eraseOnPanel] shows an eraser on the panel at ink speed. */
+    val panelErase: Boolean = false,
+    /**
+     * What the low-latency ink can show; null when unknown. Hardware capabilities report greys
+     * for it on a monochrome panel whatever is set here.
+     */
+    val liveInkColors: LiveInkColors? = null
 )
 
 data class EpdAdapterProbeResult(
@@ -38,6 +60,10 @@ data class EpdAdapterStatus(
 }
 
 interface EpdAdapter {
+    /** Stable identifier of the backend, as reported in [HardwareCapabilities.backend]. */
+    val backendId: String
+        get() = javaClass.simpleName
+
     /**
      * Bind the adapter to the rendering view.
      */
@@ -122,7 +148,41 @@ interface EpdAdapter {
     /**
      * Set a boundary limit rectangle for low-latency drawing.
      */
-    fun setDrawingLimit(rect: android.graphics.Rect?) {}
+    fun setDrawingLimit(rect: Rect?) {}
+
+    /**
+     * Select the pen used for the low-latency preview (and for [renderStroke], when supported).
+     */
+    fun setStylusTool(tool: StylusTool) {}
+
+    /**
+     * Erase a circle of [radiusPx] straight on the panel along the touch stream, at ink speed, while
+     * the low-latency ink is off, painting [background] (host-sized, the content under the strokes)
+     * or white. The host's own content is unchanged until it applies the erase. Feed it every event
+     * of the erasing stroke, from its first, which may be mid-stroke, to its UP. Returns false when
+     * the backend cannot.
+     */
+    fun eraseOnPanel(event: MotionEvent, radiusPx: Int, background: Bitmap? = null): Boolean = false
+
+    /**
+     * The points the current or last [eraseOnPanel] erase went through, in host coordinates: not
+     * every point of the stroke, so an erase applied along these matches what the panel erased.
+     */
+    fun panelErasePath(): List<PointF> = emptyList()
+
+    /**
+     * Draw a committed stroke with the vendor's own pen engine into a software-backed [canvas]
+     * (e.g. one wrapping a Bitmap). Returns false when the adapter cannot, in which case the host
+     * renders the stroke itself.
+     */
+    fun renderStroke(canvas: Canvas, stroke: DrawingStroke): Boolean = false
+
+    /**
+     * Areas inside the drawing region where the low-latency path must not ink, in the bound
+     * view's local px; empty for none. The pen still reaches the view there as plain touch
+     * events. Backends without vendor support ignore it.
+     */
+    fun setExcludedRegions(regions: List<Rect>) {}
 }
 
 /**
@@ -133,3 +193,6 @@ interface EpdAdapterIntrospection {
     fun probe(view: View): EpdAdapterProbeResult
     fun status(): EpdAdapterStatus
 }
+
+internal fun EpdAdapter.capabilities(): EpdAdapterCapabilities =
+    (this as? EpdAdapterIntrospection)?.status()?.capabilities ?: EpdAdapterCapabilities()

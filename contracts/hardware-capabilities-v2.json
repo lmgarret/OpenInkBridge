@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "documents": {
+    "ireaderTablet": {
+      "schemaVersion": 2,
+      "device": {
+        "manufacturer": "Chitech",
+        "brand": "Byybuo",
+        "model": "TAB-Executive",
+        "runtime": "android",
+        "firmware": { "value": "ireader", "source": "vendor" }
+      },
+      "display": {
+        "technology": { "value": "eink", "source": "vendor" },
+        "color": { "value": "monochrome", "source": "deviceTable" },
+        "panelModel": "ED070KC4",
+        "widthPx": 1264,
+        "heightPx": 1680,
+        "ppi": 320
+      },
+      "digitizer": { "stylus": true, "pressure": true, "tilt": true, "hover": null, "eraser": null },
+      "backend": "ireader",
+      "epdc": { "refreshModes": ["SPEED", "BALANCED", "QUALITY"], "fullRefresh": true },
+      "liveInk": { "colors": { "kind": "fixed", "values": ["#000000", "#505050", "#FFFFFF"] } },
+      "extras": { "ireader.platform": "zhangyue_MTK8781_14.0" }
+    },
+    "onyxMonochrome": {
+      "schemaVersion": 2,
+      "device": {
+        "manufacturer": "ONYX",
+        "brand": "ONYX",
+        "model": "contract-model",
+        "runtime": "android",
+        "firmware": { "value": "onyx", "source": "deviceTable" }
+      },
+      "display": {
+        "technology": { "value": "eink", "source": "deviceTable" },
+        "color": { "value": "monochrome", "source": "vendor" },
+        "panelModel": null,
+        "widthPx": 1404,
+        "heightPx": 1872,
+        "ppi": 227
+      },
+      "digitizer": { "stylus": true, "pressure": true, "tilt": false, "hover": null, "eraser": null },
+      "backend": "onyx",
+      "epdc": { "refreshModes": ["SPEED", "BALANCED", "QUALITY"], "fullRefresh": true },
+      "liveInk": { "colors": { "kind": "greyscale" } },
+      "extras": { "onyx.colorType": 0 }
+    },
+    "unknownDevice": {
+      "schemaVersion": 2,
+      "device": {
+        "manufacturer": null,
+        "brand": null,
+        "model": null,
+        "runtime": "web",
+        "firmware": { "value": null, "source": "none" }
+      },
+      "display": {
+        "technology": { "value": null, "source": "none" },
+        "color": { "value": null, "source": "none" },
+        "panelModel": null,
+        "widthPx": null,
+        "heightPx": null,
+        "ppi": null
+      },
+      "digitizer": { "stylus": null, "pressure": null, "tilt": null, "hover": null, "eraser": null },
+      "backend": null,
+      "epdc": { "refreshModes": [], "fullRefresh": false },
+      "liveInk": null,
+      "extras": {}
+    }
+  }
+}
