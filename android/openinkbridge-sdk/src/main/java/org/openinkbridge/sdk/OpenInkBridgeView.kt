@@ -311,11 +311,19 @@ class OpenInkBridgeView @JvmOverloads constructor(
      * user writes delays the next stroke's ink on some backends (Musnap).
      */
     internal fun commitInkedStroke(points: List<PenPoint>) {
-        val stroke = DrawingStroke(points, strokeColor, strokeWidth, penTool)
-        completedStrokes.add(stroke)
-        unrenderedStrokes.add(stroke)
-        onStrokeCompleted?.invoke(points)
-        if (unrenderedStrokes.size == 1) runWhenPenIdle(::renderInkedStrokes)
+        val pieces = outsideExcludedRegions(points)
+        if (pieces.isEmpty()) {
+            if (unrenderedStrokes.isEmpty()) epdAdapterManager.activeAdapter.clearHardwareScribble()
+            return
+        }
+        val firstUnrendered = unrenderedStrokes.isEmpty()
+        for (piece in pieces) {
+            val stroke = DrawingStroke(piece, strokeColor, strokeWidth, penTool)
+            completedStrokes.add(stroke)
+            unrenderedStrokes.add(stroke)
+            onStrokeCompleted?.invoke(piece)
+        }
+        if (firstUnrendered) runWhenPenIdle(::renderInkedStrokes)
     }
 
     private fun renderInkedStrokes() {

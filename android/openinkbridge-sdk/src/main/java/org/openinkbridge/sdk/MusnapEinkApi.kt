@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Path
 import android.view.MotionEvent
 import android.view.SurfaceView
 import android.view.View
@@ -24,6 +25,7 @@ internal class MusnapEinkApi private constructor(
     private val setAhwToolTypes: Method,
     private val setAhwPen: Method,
     private val setAutoHandWriteMethod: Method,
+    private val setClipMethod: Method?,
     private val setListenerV1: Method,
     private val listenerV1: Class<*>,
     private val listenerV2: ListenerV2?,
@@ -108,6 +110,14 @@ internal class MusnapEinkApi private constructor(
 
     fun setAutoHandWrite(fb: Any, enabled: Boolean) {
         setAutoHandWriteMethod.invoke(fb, enabled)
+    }
+
+    /** Whether the firmware can confine the pen's ink to a clip path ([setClip]). */
+    val canClip: Boolean get() = setClipMethod != null
+
+    /** Confines the pen's ink to [clip], in the pen surface's coordinates. */
+    fun setClip(fb: Any, clip: Path) {
+        (setClipMethod ?: throw UnsupportedOperationException("IFBHandSurface.setClip unavailable")).invoke(fb, clip)
     }
 
     /** Installs [sink] (or removes the listener when null), preferring the V2 callback. */
@@ -308,6 +318,7 @@ internal class MusnapEinkApi private constructor(
                     Int::class.javaPrimitiveType
                 ),
                 setAutoHandWriteMethod = fbSurface.getMethod("setAutoHandWrite", Boolean::class.javaPrimitiveType),
+                setClipMethod = runCatching { fbSurface.getMethod("setClip", Path::class.java) }.getOrNull(),
                 setListenerV1 = fbSurface.getMethod("setAhwTouchListener", listenerV1),
                 listenerV1 = listenerV1,
                 listenerV2 = listenerV2,
