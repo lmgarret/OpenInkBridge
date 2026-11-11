@@ -14,7 +14,7 @@ dependencyResolutionManagement {
             forRepository {
                 maven {
                     name = "Boox"
-                    url "https://repo.boox.com/repository/maven-public/"
+                    url = "https://repo.boox.com/repository/maven-public/"
                 }
             }
             filter {
