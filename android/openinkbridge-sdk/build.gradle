@@ -28,6 +28,8 @@ android {
     }
 
     sourceSets {
+        // The shared device table ships with the SDK (OIP §7.1); the other contracts are test fixtures.
+        main.resources.srcDir "$rootDir/../contracts/device-table"
         test.resources.srcDir "$rootDir/../contracts"
     }
 

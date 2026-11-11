@@ -29,7 +29,12 @@ data class EpdAdapterCapabilities(
      */
     val vendorStrokeRendering: Boolean = false,
     /** [EpdAdapter.eraseOnPanel] shows an eraser on the panel at ink speed. */
-    val panelErase: Boolean = false
+    val panelErase: Boolean = false,
+    /**
+     * What the low-latency ink can show; null when unknown. Hardware capabilities report greys
+     * for it on a monochrome panel whatever is set here.
+     */
+    val liveInkColors: LiveInkColors? = null
 )
 
 data class EpdAdapterProbeResult(
@@ -55,6 +60,10 @@ data class EpdAdapterStatus(
 }
 
 interface EpdAdapter {
+    /** Stable identifier of the backend, as reported in [HardwareCapabilities.backend]. */
+    val backendId: String
+        get() = javaClass.simpleName
+
     /**
      * Bind the adapter to the rendering view.
      */

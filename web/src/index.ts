@@ -26,6 +26,19 @@ export {
     StylingOptions,
     smoothStrokeJs
 } from './model';
+export {
+    detectBrowserCapabilities,
+    DisplayTechnology,
+    HARDWARE_CAPABILITIES_SCHEMA_VERSION,
+    HardwareCapabilities,
+    LiveInkColors,
+    PanelColor,
+    parseHardwareCapabilities,
+    RefreshMode,
+    Runtime,
+    Sourced,
+    ValueSource
+} from './capabilities';
 export { logger, LogLevel, Subsystem, LogEntry } from './logger';
 export { collectDiagnostics, dumpConfiguration, createBugReport, DiagnosticsReport, CapabilitiesReport } from './diagnostics';
 export { SDK_VERSION } from './generated/version';

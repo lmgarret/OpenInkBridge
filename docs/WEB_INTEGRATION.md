@@ -107,7 +107,28 @@ console.log(isOpenInkBridgeWasmInitialized());
 
 ---
 
-## 6. API Reference
+## 6. Hardware Capabilities
+
+`openInkBridge.getHardwareCapabilities()` resolves to the OIP §7.1 document describing the device
+and the native backend:
+
+```ts
+import { openInkBridge } from 'openinkbridge-web';
+
+const capabilities = await openInkBridge.getHardwareCapabilities();
+if (capabilities.display.color.value === 'monochrome') hideColourPens();
+const liveInk = capabilities.liveInk?.colors; // e.g. { kind: 'fixed', values: ['#000000', '#505050', '#FFFFFF'] }
+```
+
+Inside an OIP WebView the native bridge answers. Without one, or when the bridge does not answer
+within `timeoutMs` (1 s by default; older native bridges ignore the request), it reports what the
+browser can tell: CSS media queries (`update: slow`, `monochrome`) as heuristics, which e-ink
+browsers rarely report faithfully, and everything else as unknown (`null`). Native replies are
+validated with `parseHardwareCapabilities()`, which is exported too.
+
+---
+
+## 7. API Reference
 
 ### `OpenInkBridgeCanvas`
 
@@ -125,7 +146,7 @@ console.log(isOpenInkBridgeWasmInitialized());
 
 ---
 
-## 7. Verification
+## 8. Verification
 
 From `web/`:
 
