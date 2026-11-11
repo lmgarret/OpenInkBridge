@@ -277,6 +277,8 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
     private var maxObservedPressure = 1f
     private var stylusOnly = true
     private var drawingLimitRect: android.graphics.Rect? = null
+    // Where TouchHelper must not ink, in the view's local px; passed with every limit rect.
+    private var excludedRegions: List<android.graphics.Rect> = emptyList()
 
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -405,7 +407,7 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                         touchHelper?.setStrokeWidth(hwWidth)
                         touchHelper?.setStrokeColor(paint.color)
                         drawingLimitRect?.let { rect ->
-                            touchHelper?.setLimitRect(rect, ArrayList<android.graphics.Rect>())
+                            touchHelper?.setLimitRect(rect, excludeRects())
                         }
                     } catch (e: Exception) {
                         OpenInkBridgeLogger.w(Subsystem.Renderer, "BOOX", "STROKE_PROP_FAILED", "Could not apply stroke properties in callback: ${e.message}")
@@ -531,7 +533,7 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                     // 1. Open Raw Drawing first
                     touchHelper?.openRawDrawing()
                     // 2. Limit Rect (must be after openRawDrawing or it gets wiped)
-                    touchHelper?.setLimitRect(limitRect, emptyList())
+                    touchHelper?.setLimitRect(limitRect, excludeRects())
                     // 3. Style
                     touchHelper?.setStrokeStyle(TouchHelper.STROKE_STYLE_FOUNTAIN)
                     // 4. Width
@@ -630,7 +632,7 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                     val h = lp.height
                     if (w > 0 && h > 0) {
                         val limitRect = android.graphics.Rect(left, top, left + w, top + h)
-                        touchHelper?.setLimitRect(limitRect, ArrayList<android.graphics.Rect>())
+                        touchHelper?.setLimitRect(limitRect, excludeRects())
                     }
                 }
             }
@@ -757,7 +759,7 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                 touchHelper?.openRawDrawing()
                 
                 if (limitRect.width() > 0 && limitRect.height() > 0) {
-                    touchHelper?.setLimitRect(limitRect, emptyList())
+                    touchHelper?.setLimitRect(limitRect, excludeRects())
                 }
                 
                 val hwWidth = getPhysicalHardwareStrokeWidth(width)
@@ -806,6 +808,26 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         }
     }
 
+    /** A fresh copy each time: TouchHelper may keep the list it is given. */
+    private fun excludeRects(): ArrayList<android.graphics.Rect> =
+        excludedRegions.mapTo(ArrayList(excludedRegions.size)) { android.graphics.Rect(it) }
+
+    override fun setExcludedRegions(regions: List<android.graphics.Rect>) {
+        excludedRegions = regions.map { android.graphics.Rect(it) }
+        val targetView = view ?: return
+        if (touchHelper == null) return
+        try {
+            // The exclude list only travels with the limit rect: set it again, as it stands now.
+            val limitRect = getActiveLimitRect(targetView)
+            if (limitRect.width() > 0 && limitRect.height() > 0) {
+                touchHelper?.setLimitRect(limitRect, excludeRects())
+            }
+            OpenInkBridgeLogger.d(Subsystem.Backend, "BOOX", "EXCLUDED_REGIONS_UPDATED", "TouchHelper excludes ${excludedRegions.size} regions")
+        } catch (e: Exception) {
+            OpenInkBridgeLogger.w(Subsystem.Backend, "BOOX", "EXCLUDED_REGIONS_FAILED", "Failed to set Onyx excluded regions: ${e.message}")
+        }
+    }
+
     override fun setDrawingLimit(rect: android.graphics.Rect?) {
         drawingLimitRect = rect
         try {
@@ -813,7 +835,7 @@ class OnyxBooxEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                 touchHelper?.closeRawDrawing()
                 touchHelper?.openRawDrawing()
                 if (rect != null) {
-                    touchHelper?.setLimitRect(rect, ArrayList<android.graphics.Rect>())
+                    touchHelper?.setLimitRect(rect, excludeRects())
                 } else {
                     touchHelper?.setLimitRect(null as android.graphics.Rect?, null)
                 }

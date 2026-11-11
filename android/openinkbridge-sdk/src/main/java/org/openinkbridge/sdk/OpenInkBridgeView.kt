@@ -221,8 +221,9 @@ class OpenInkBridgeView @JvmOverloads constructor(
 
     /**
      * Commit a stroke as if it had just been drawn: with the given pen (by default the current
-     * one), reported to the stroke listener unless [notify] is false. To put back many strokes at
-     * once, e.g. after removing some, assign [strokes].
+     * one), reported to the stroke listener unless [notify] is false. Parts crossing
+     * [setExcludedRegions] are cut out: each remaining piece is committed and reported on its own.
+     * To put back many strokes at once, e.g. after removing some, assign [strokes].
      */
     @JvmOverloads
     fun addCompletedStroke(
@@ -232,8 +233,10 @@ class OpenInkBridgeView @JvmOverloads constructor(
         width: Float = strokeWidth,
         notify: Boolean = true
     ) {
-        commitStroke(DrawingStroke(stroke, color, width, tool))
-        if (notify) onStrokeCompleted?.invoke(stroke)
+        for (piece in outsideExcludedRegions(stroke)) {
+            commitStroke(DrawingStroke(piece, color, width, tool))
+            if (notify) onStrokeCompleted?.invoke(piece)
+        }
     }
 
     /**
@@ -390,6 +393,24 @@ class OpenInkBridgeView @JvmOverloads constructor(
     }
 
     private var stylusOnly = true
+    private var excludedRegions: List<Rect> = emptyList()
+    private var excludedBoxes: List<ExcludedBox> = emptyList()
+
+    /**
+     * Areas of this view, in its px, that take taps rather than writing (e.g. cells); empty for
+     * none. Backends that support it keep their low-latency ink out of them, and the pen still
+     * reaches the view there as touch events. On every backend, strokes committed from then on
+     * are cut where they cross a region: only the pieces outside are kept and reported. Kept and
+     * re-applied whenever the backend binds again.
+     */
+    fun setExcludedRegions(regions: List<RectF>) {
+        excludedRegions = regions.map { r -> Rect().also(r::roundOut) }
+        excludedBoxes = excludedRegions.map { ExcludedBox(it.left.toFloat(), it.top.toFloat(), it.right.toFloat(), it.bottom.toFloat()) }
+        epdAdapterManager.activeAdapter.setExcludedRegions(excludedRegions)
+    }
+
+    private fun outsideExcludedRegions(stroke: List<PenPoint>): List<List<PenPoint>> =
+        ExcludedRegions.split(stroke, excludedBoxes)
 
     fun setStylusOnly(enabled: Boolean) {
         this.stylusOnly = enabled
@@ -488,8 +509,10 @@ class OpenInkBridgeView @JvmOverloads constructor(
     private fun finishStroke() {
         epdAdapterManager.activeAdapter.endStroke()
         val smoothedStroke = CoreBridge.smoothStroke(strokePoints)
-        commitStroke(DrawingStroke(smoothedStroke, strokeColor, strokeWidth, penTool))
-        onStrokeCompleted?.invoke(smoothedStroke)
+        for (piece in outsideExcludedRegions(smoothedStroke)) {
+            commitStroke(DrawingStroke(piece, strokeColor, strokeWidth, penTool))
+            onStrokeCompleted?.invoke(piece)
+        }
         strokePoints.clear()
         isDrawing = false
         invalidate() // Trigger redraw to render the smoothed vector path
@@ -715,6 +738,7 @@ class OpenInkBridgeView @JvmOverloads constructor(
             epdAdapterManager.activeAdapter.setBrushStyle(strokeColor, strokeWidth)
             epdAdapterManager.activeAdapter.setStylusTool(penTool)
             epdAdapterManager.activeAdapter.setStylusOnly(stylusOnly)
+            if (excludedRegions.isNotEmpty()) epdAdapterManager.activeAdapter.setExcludedRegions(excludedRegions)
             if (inkSuspended) {
                 epdAdapterManager.activeAdapter.setRawDrawingEnabled(false)
             } else {

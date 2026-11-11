@@ -167,6 +167,13 @@ interface EpdAdapter {
      * renders the stroke itself.
      */
     fun renderStroke(canvas: Canvas, stroke: DrawingStroke): Boolean = false
+
+    /**
+     * Areas inside the drawing region where the low-latency path must not ink, in the bound
+     * view's local px; empty for none. The pen still reaches the view there as plain touch
+     * events. Backends without vendor support ignore it.
+     */
+    fun setExcludedRegions(regions: List<Rect>) {}
 }
 
 /**
