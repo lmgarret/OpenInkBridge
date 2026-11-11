@@ -123,6 +123,14 @@ interface EpdAdapter {
      * Set a boundary limit rectangle for low-latency drawing.
      */
     fun setDrawingLimit(rect: android.graphics.Rect?) {}
+
+    /**
+     * Areas inside the drawing region where the low-latency path must not ink, in the bound
+     * view's local px; empty for none. The pen still reaches the view there as plain touch
+     * events. Backends without vendor support ignore it.
+     */
+    fun setExcludedRegions(regions: List<android.graphics.Rect>) {}
+
 }
 
 /**
