@@ -151,7 +151,8 @@ inside are dropped, each piece outside is committed and reported to the stroke l
 own, and a stroke drawn entirely inside one is not committed at all.
 
 Live ink stays out of the regions on backends that support it: Onyx (as `TouchHelper.setLimitRect`'s
-exclude list). Others ink everywhere while the pen moves, and the cut applies at pen-up.
+exclude list) and Musnap (as the firmware pen's clip, see [musnap.md](musnap.md)). Others ink
+everywhere while the pen moves, and the cut applies at pen-up.
 
 ---
 

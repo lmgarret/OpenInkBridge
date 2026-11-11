@@ -61,6 +61,15 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
     // input, so points stamped before it still finish the stroke the firmware was inking.
     @Volatile private var inkingOffSince: Long? = null
     private var drawingLimit: Rect? = null
+    // Where the firmware must not ink, in the host's local px. The clip keeping it out is in the
+    // overlay's coordinates: it is set for the current pen surface, region and regions, null if none.
+    private var excludedRegions: List<Rect> = emptyList()
+    private var clipRegion: Rect? = null
+    private var clipExcluded: List<Rect>? = null
+    // The overlay's current stroke started in an excluded region and belongs to the views below.
+    private var strokeExcluded = false
+    // Firmware points of a stroke that started in an excluded region are dropped until its UP.
+    private var droppingAhwStroke = false
     private val region = Rect()
     private var clearScheduled = false
     private var recreatePending = false
@@ -240,6 +249,9 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
         panelEraser = null
         panelEraserFeed.reset()
         autoHandWriteApplied = null
+        clipRegion = null
+        clipExcluded = null
+        droppingAhwStroke = false
         assembler.reset()
     }
 
@@ -264,6 +276,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
             }
             applyPen()
             applyAutoHandWrite()
+            applyExclusionClip()
             adapterState = EpdAdapterState.OPERATIONAL
             statusReason = null
             OpenInkBridgeLogger.i(Subsystem.Backend, TAG, "OPERATIONAL", "Firmware pen fast path bound to overlay ${region.width()}x${region.height()}")
@@ -278,6 +291,16 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
     private val ahwSink = object : MusnapEinkApi.AhwSink {
         override fun onPoint(action: Int, x: Float, y: Float, pressure: Float, tilt: Float, timestamp: Long) {
             if (inkingOffSince?.let { timestamp >= it } == true) return
+            // The clip keeps the firmware from inking there; should it report such a stroke
+            // anyway, it is the views' below, not the host's.
+            if (action == AhwAction.DOWN) droppingAhwStroke = inExcludedRegion(x + region.left, y + region.top)
+            if (droppingAhwStroke) {
+                if (action == AhwAction.UP) {
+                    droppingAhwStroke = false
+                    clearHardwareScribble()
+                }
+                return
+            }
             if (action == AhwAction.DOWN) findOverlayCanvas()?.beginVendorStroke()
             val stroke = assembler.onPoint(
                 action, x, y, pressure, tilt, timestamp,
@@ -335,6 +358,7 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
                 ?.let { Rect(it.left, it.top, it.right, it.bottom) }
             ?: Rect(0, 0, host.width, host.height)
         region.set(target)
+        applyExclusionClip()
 
         val hostLocation = IntArray(2)
         val parentLocation = IntArray(2)
@@ -394,6 +418,12 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
      */
     private fun onOverlayTouch(event: MotionEvent): Boolean {
         if (event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) return false
+        // A stroke starting in an excluded region falls through to the views under the overlay,
+        // which then see the rest of it; it is not pen activity for the host.
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            strokeExcluded = inExcludedRegion(event.x + region.left, event.y + region.top)
+        }
+        if (strokeExcluded) return false
         val buttons = PenButtons.fromAndroidButtonState(event.buttonState)
         buttonTimeline.record(event.eventTime, buttons)
         (hostView as? OpenInkBridgeView)?.reportStylusButtons(buttons)
@@ -404,6 +434,49 @@ class MusnapEpdAdapter : EpdAdapter, EpdAdapterIntrospection {
             inkingOffSince = inkingOffSince?.let { minOf(it, event.eventTime) }
         }
         return active
+    }
+
+    private fun inExcludedRegion(hostX: Float, hostY: Float): Boolean =
+        excludedRegions.any { it.contains(hostX.toInt(), hostY.toInt()) }
+
+    /**
+     * Confines the firmware's ink to the overlay minus the excluded regions. The clip is in the
+     * overlay's coordinates, so it is set again whenever the overlay moves or is bound anew.
+     */
+    private fun applyExclusionClip() {
+        val api = api ?: return
+        val fb = fbSurface ?: return
+        if (!api.canClip) return
+        if (clipExcluded === excludedRegions && clipRegion == region) return
+        // No clip on this surface yet, and none needed.
+        if (clipExcluded == null && excludedRegions.isEmpty()) return
+        val clip = Path().apply { addRect(0f, 0f, region.width().toFloat(), region.height().toFloat(), Path.Direction.CW) }
+        for (excluded in excludedRegions) {
+            val hole = Path().apply {
+                addRect(
+                    (excluded.left - region.left).toFloat(), (excluded.top - region.top).toFloat(),
+                    (excluded.right - region.left).toFloat(), (excluded.bottom - region.top).toFloat(),
+                    Path.Direction.CW
+                )
+            }
+            clip.op(hole, Path.Op.DIFFERENCE)
+        }
+        // Recorded even if it fails: retried on every frame, it would only fail again.
+        clipRegion = Rect(region)
+        clipExcluded = excludedRegions
+        try {
+            api.setClip(fb, clip)
+        } catch (error: Throwable) {
+            OpenInkBridgeLogger.w(Subsystem.Backend, TAG, "EXCLUSION_CLIP_FAILED", "setClip failed: ${error.cause?.message ?: error.message}")
+        }
+    }
+
+    override fun setExcludedRegions(regions: List<Rect>) {
+        excludedRegions = regions.map(::Rect)
+        applyExclusionClip()
+        if (api?.canClip == false) {
+            OpenInkBridgeLogger.w(Subsystem.Backend, TAG, "EXCLUSION_CLIP_UNAVAILABLE", "Firmware has no IFBHandSurface.setClip: live ink is not kept out of excluded regions")
+        }
     }
 
     private fun applyAutoHandWrite() {

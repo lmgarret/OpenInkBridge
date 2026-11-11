@@ -160,6 +160,26 @@ updates and glitches more than it fixes. An eraser selected before the pen touch
 * Cutting a long scribble took a second checking every eraser point against every stroke point;
   bucketing the eraser path by position brought it to about 150 ms.
 
+## Excluded regions
+
+`OpenInkBridgeView.setExcludedRegions` keeps the firmware's ink out of areas that take taps rather
+than writing (e.g. crossword clue cells):
+
+* The adapter clips the pen surface to the overlay minus the regions (`IFBHandSurface.setClip`),
+  set again whenever the overlay moves or is bound anew. The firmware then inks nothing there: a
+  stroke crossing a region stops at its edge and resumes past it.
+* A stroke that starts in a region is not taken by the overlay: it falls through to the views
+  under it as ordinary stylus touch events, so a tap reaches the app. The firmware reports no
+  points for it; any it did report would be dropped.
+* Committed strokes are cut at the regions like on every backend (see ANDROID_INTEGRATION.md), so
+  they match the clipped ink.
+
+Verified on an iReader-firmware tablet (MT8781, Android 14) with a crossword grid: no ink in the
+excluded cells, taps on them reported to the app, strokes crossing them inked on both sides.
+Turning the fast path off while the pen hovers over a region (`disableAutoHandWrite`) also works,
+but the first hover point after the pen comes into range is reported at the screen's bottom-left
+corner, and the clip needs no timing.
+
 ## Refresh modes
 
 | OIP refresh mode | Firmware constant (`android.eink.api.EinkMode`) |
@@ -214,6 +234,7 @@ twelve.
 | --- | --- |
 | Overlay surface | `android.eink.view.HWSurfaceView(Context)`, `getFBSurface()` |
 | Pen fast path | `IFBHandSurface.setAhwToolTypes`, `setAhwPen`, `setAutoHandWrite` |
+| Excluded regions | `IFBHandSurface.setClip(Path)` |
 | Stroke points | `IFBHandSurface.setAhwTouchListenerV2` / `setAhwTouchListener` |
 | Committed strokes | `android.eink.view.HandPen(int, boolean)`, `setCanvasBoard`, `onTouchEventV2(HandPoint)`, `draw` |
 | Panel eraser | `android.eink.view.HWEraser(IFBHandSurface, SurfacePicture, FBPicture)`, `setRadius`, `setStyle(STYLE_QUICK)`, `onTouchEvent(int, int, int)`; `HWEraserView.SurfacePicture.bindColor`, `HWEraserView.FBPicture.bindBitmap`/`bindColor`, `setViewLocation` |
