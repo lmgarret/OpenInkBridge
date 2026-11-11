@@ -88,7 +88,11 @@ object OpenInkBridgeDevice {
         val styluses = InputDevice.getDeviceIds().asList().mapNotNull { InputDevice.getDevice(it) }
             .filter { it.supportsSource(InputDevice.SOURCE_STYLUS) }
         if (styluses.isEmpty()) return DigitizerInfo(stylus = false, pressure = false, tilt = false, hover = null, eraser = null)
-        fun reports(axis: Int) = styluses.any { it.getMotionRange(axis, InputDevice.SOURCE_STYLUS) != null }
+        // Matched by source bits: a pen sharing the touchscreen's controller lists its axes under
+        // TOUCHSCREEN | STYLUS, which getMotionRange(axis, SOURCE_STYLUS) does not find.
+        fun reports(axis: Int) = styluses.any { device ->
+            device.motionRanges.any { it.axis == axis && it.isFromSource(InputDevice.SOURCE_STYLUS) }
+        }
         return DigitizerInfo(
             stylus = true,
             pressure = reports(MotionEvent.AXIS_PRESSURE),
